@@ -214,10 +214,11 @@ export interface MachineRate {
   createdBy: string;
 }
 
-// Standard throughput per stage, used to estimate the conversion part of the standard cost.
+// Standard throughput and staffing per stage, used to estimate the conversion part of the standard cost.
 export interface StageStandard {
   stage: StageType;
   kgPerHour: number;
+  positionId: string;
 }
 
 export interface OrderCostLine {

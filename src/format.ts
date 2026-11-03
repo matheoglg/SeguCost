@@ -24,11 +24,15 @@ export const formatKg = (value: number, decimals = 2) => `${formatNumber(value, 
 
 export const formatLb = (value: number) => `${formatNumber(value, 2)} lb`;
 
-/** Parses user input with comma or dot decimals ("1.234,5" or "1234.5"). NaN if invalid. */
+/**
+ * Parses user input in Ecuadorian format: "1.234,5", "10.000" (thousands) or "12,5".
+ * A dot is read as decimal only when it cannot be a thousands separator ("12.5"). NaN if invalid.
+ */
 export function parseNumber(input: string): number {
   const s = input.trim().replace(/\s/g, '');
   if (!s) return NaN;
-  const normalized = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
+  const thousandsOnly = /^-?\d{1,3}(\.\d{3})+$/.test(s);
+  const normalized = s.includes(',') || thousandsOnly ? s.replace(/\./g, '').replace(',', '.') : s;
   return /^-?\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : NaN;
 }
 
@@ -41,6 +45,23 @@ export function formatDate(value: string): string {
     return `${d}/${m}/${y}`;
   }
   const d = new Date(value);
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/** "02/11/2026" -> "2026-11-02"; "" when the date is not valid. */
+export function parseDateInput(input: string): string {
+  const m = input.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return '';
+  const [, d, mo, y] = m.map(Number);
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return '';
+  return `${y}-${pad(mo)}-${pad(d)}`;
+}
+
+/** Today (or today + days) as "dd/mm/aaaa" for date inputs. */
+export function todayInput(days = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
@@ -65,11 +86,18 @@ export function formatTimer(ms: number): string {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
-/** Readable duration: 5_400_000 ms -> "1 h 30 min"; under an hour -> "45 min". */
+/** Worked time: "45 min", "1 h 30 min", "27 h 15 min" (always in hours). */
 export function formatDuration(ms: number): string {
   const minutes = Math.max(0, Math.round(ms / 60_000));
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h === 0) return `${m} min`;
   return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/** Elapsed calendar time for "time in state": like formatDuration, but days from 24 h on ("23 d 5 h"). */
+export function formatElapsed(ms: number): string {
+  const h = Math.floor(Math.max(0, Math.round(ms / 60_000)) / 60);
+  if (h < 24) return formatDuration(ms);
+  return h % 24 === 0 ? `${h / 24} d` : `${Math.floor(h / 24)} d ${h % 24} h`;
 }

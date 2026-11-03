@@ -22,6 +22,12 @@ export const colors = {
   idleBg: '#E9ECF1',
 } as const;
 
+/**
+ * Categorical chart colors in fixed order (validated: adjacent CVD ΔE ≥ 9.1). Slots 3 and 4 are
+ * below 3:1 on white, so charts always ship a legend plus direct labels.
+ */
+export const chartColors = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100'] as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,

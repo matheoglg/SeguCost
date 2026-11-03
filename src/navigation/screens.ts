@@ -20,6 +20,8 @@ export interface ScreenDef {
   rf: string[];
   /** Web sidebar group; screens without it are reached from other screens. */
   menu?: MenuGroup;
+  /** Shorter sidebar label when the title does not fit. */
+  menuLabel?: string;
 }
 
 const OFFICE: Role[] = ['adm', 'ven', 'con', 'fac', 'rrhh', 'sup'];
@@ -38,10 +40,10 @@ export const screens: ScreenDef[] = [
   { id: 'W-09', title: 'Detalle y validación de orden', purpose: 'Seguimiento de una orden y validación de su cierre.', platform: 'web', path: '/ordenes/:id', roles: ['sup', 'adm'], rf: ['RF-15', 'RF-16', 'RF-17', 'RF-19', 'RF-20', 'RF-22'] },
   { id: 'W-10', title: 'Monitor de planta', purpose: 'Estado de cada máquina en tiempo real.', platform: 'web', path: '/planta', roles: ['sup'], rf: ['RF-25'], menu: 'Producción' },
   { id: 'W-11', title: 'Proveedores y precios', purpose: 'Registro de precios por proveedor y su historial.', platform: 'web', path: '/precios', roles: ['con', 'adm'], rf: ['RF-26', 'RF-27'], menu: 'Costos' },
-  { id: 'W-12', title: 'Comparador local vs. importado', purpose: 'Apoyo a la decisión de compra.', platform: 'web', path: '/precios/comparar', roles: ['adm', 'con'], rf: ['RF-28'], menu: 'Costos' },
+  { id: 'W-12', title: 'Comparador local vs. importado', purpose: 'Apoyo a la decisión de compra.', platform: 'web', path: '/precios/comparar', roles: ['adm', 'con'], rf: ['RF-28'], menu: 'Costos', menuLabel: 'Local vs. importado' },
   { id: 'W-13', title: 'Costos de recursos', purpose: 'Costo por hora de cargos de planta y de máquinas.', platform: 'web', path: '/recursos', roles: ['adm', 'rrhh'], rf: ['RF-29', 'RF-30'], menu: 'Costos' },
   { id: 'W-14', title: 'Costeo de orden', purpose: 'Resultado del costeo automático de una orden cerrada.', platform: 'web', path: '/costos/ordenes/:id', roles: ['adm', 'ven', 'con', 'sup'], rf: ['RF-31', 'RF-32', 'RF-33', 'RF-35'] },
-  { id: 'W-15', title: 'Impacto de cambio de precio', purpose: 'Recálculo de costos estándar tras actualizar un precio.', platform: 'web', path: '/costos/impacto', roles: ['adm', 'con'], rf: ['RF-34'], menu: 'Costos' },
+  { id: 'W-15', title: 'Impacto de cambio de precio', purpose: 'Recálculo de costos estándar tras actualizar un precio.', platform: 'web', path: '/costos/impacto', roles: ['adm', 'con'], rf: ['RF-34'], menu: 'Costos', menuLabel: 'Impacto de precios' },
   { id: 'W-16', title: 'Simulador de márgenes', purpose: 'Cálculo del precio de venta con distintos márgenes.', platform: 'web', path: '/precios/simulador', roles: ['ven', 'adm'], rf: ['RF-36', 'RF-37'], menu: 'Precios' },
   { id: 'W-17', title: 'Aprobación de precios', purpose: 'Bandeja de propuestas de precio referencial.', platform: 'web', path: '/precios/aprobacion', roles: ['adm'], rf: ['RF-37', 'RF-38', 'RF-04'], menu: 'Precios' },
   { id: 'W-18', title: 'Costos y precios vigentes', purpose: 'Consulta de solo lectura para facturación y ventas.', platform: 'web', path: '/consulta', roles: ['fac', 'ven', 'con', 'adm'], rf: ['RF-39'], menu: 'Precios' },
@@ -82,6 +84,15 @@ export function homePath(role: Role, isWide: boolean): string {
     default:
       return '/panel';
   }
+}
+
+const patternRegex = (pattern: string) => new RegExp(`^${pattern.replace(/:\w+/g, '[^/]+')}/?$`);
+// Static routes first so '/recetas/aprobacion' does not match '/recetas/:funda'.
+const byPattern = [...screens].sort((a, b) => Number(a.path.includes(':')) - Number(b.path.includes(':')));
+
+/** Screen definition for a concrete pathname, e.g. '/ordenes/op-0003' -> W-09. */
+export function screenForPath(pathname: string): ScreenDef | undefined {
+  return byPattern.find((s) => patternRegex(s.path).test(pathname));
 }
 
 /** Fills a route pattern: fillPath('/ordenes/:id', { id: 'op-0003' }) -> '/ordenes/op-0003'. */

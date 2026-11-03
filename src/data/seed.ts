@@ -270,11 +270,11 @@ export function createSeed(now: Date = new Date()): Database {
   ]);
 
   const stageStandards: Database['stageStandards'] = [
-    { stage: 'extrusion', kgPerHour: 25 },
-    { stage: 'printing', kgPerHour: 30 },
-    { stage: 'sealing', kgPerHour: 20 },
-    { stage: 'dieCutting', kgPerHour: 30 },
-    { stage: 'packing', kgPerHour: 60 },
+    { stage: 'extrusion', kgPerHour: 25, positionId: 'pos-ext' },
+    { stage: 'printing', kgPerHour: 30, positionId: 'pos-imp' },
+    { stage: 'sealing', kgPerHour: 20, positionId: 'pos-sel' },
+    { stage: 'dieCutting', kgPerHour: 30, positionId: 'pos-sel' },
+    { stage: 'packing', kgPerHour: 60, positionId: 'pos-emp' },
   ];
 
   // ---- production orders ----
