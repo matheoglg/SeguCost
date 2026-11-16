@@ -1,21 +1,24 @@
 // Business operations of the prototype. Each one validates its input, updates the shared store and,
 // when the SRS asks for it, writes the audit log (RF-04). Screens call these and show the result (RNF-04).
 import { computeOrderCost, currentRecipe, standardCost } from '@/domain/costing';
-import { buildExportCsv, validateCatalogImport, type ImportResult } from '@/domain/dobra';
-import { stageCodes } from '@/domain/labels';
-import { dateKey, referencePrice } from '@/domain/prices';
+import { validateImport, type CatalogImport } from '@/domain/csvImport';
+import { materialTypeLabels, materialUnitLabels, roleLabels, stageCodes } from '@/domain/labels';
+import { DEMO_PASSWORD } from '@/data/seed';
+import { dateKey, inForce, referenceQuote } from '@/domain/prices';
 import { belowMinimum, currentReferencePrice } from '@/domain/pricing';
 import { canTransition, orderWaste, openPause } from '@/domain/production';
 import { buildRoute, sectionOf } from '@/domain/routing';
 import { unitsToWeight } from '@/domain/conversion';
 import { check, fail, isPositive, ok, type Result } from '@/domain/validation';
-import { formatMoney, formatNumber, formatPercent, formatTime, formatUnitCost } from '@/format';
+import { formatDate, formatMoney, formatNumber, formatPercent, formatTime, formatUnitCost } from '@/format';
 import type {
   Database,
   MarginMethod,
   MaterialType,
   MaterialUnit,
   OrderCost,
+  Origin,
+  RuleKey,
   PauseType,
   ProductType,
   RecipeItem,
@@ -25,6 +28,7 @@ import type {
   WasteDestination,
 } from '@/domain/types';
 import { newId, useDataStore } from './data';
+import { approvedPrices, type ApprovedPrice } from './selectors';
 import { useSessionStore } from './session';
 import { useUiStore } from './ui';
 
@@ -42,58 +46,121 @@ const nextCode = (prefix: string, codes: string[]) => {
 const productCode = (productId: string) => db().products.find((p) => p.id === productId)?.code ?? productId;
 const orderCode = (orderId: string) => db().orders.find((o) => o.id === orderId)?.code ?? orderId;
 
-// ---------------- users (RF-02) ----------------
+// ---------------- accounts (RF-03, RF-05) ----------------
 
-export function saveUser(input: { id?: string; name: string; username: string; role: Role; active: boolean }): Result<string> {
+const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Free username from the name: "Jorge Castillo Vera" -> "jcastillo" (then "jcastillo2"...). */
+export function suggestUsername(name: string, taken: string[] = db().users.map((u) => u.username)): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+  const base = plain(words[0][0] + (words[1] ?? words[0].slice(1)));
+  let candidate = base;
+  for (let n = 2; taken.includes(candidate); n++) candidate = `${base}${n}`;
+  return candidate;
+}
+
+export function saveUser(input: { id?: string; name: string; username: string; role?: Role; active: boolean }): Result<string> {
   const username = input.username.trim().toLowerCase();
+  const name = input.name.trim();
+  const duplicate = db().users.some((u) => u.username === username && u.id !== input.id);
   const errors = check([
-    ['name', !input.name.trim(), 'Ingrese los nombres'],
-    ['username', !username, 'Ingrese el nombre de usuario'],
-    ['username', !/^[a-z0-9._-]+$/.test(username), 'Use solo letras minúsculas, números, punto o guion'],
-    ['username', db().users.some((u) => u.username === username && u.id !== input.id), 'Ese nombre de usuario ya existe'],
+    ['name', !name, 'Ingrese los nombres completos.'],
+    ['username', !username, 'Ingrese el usuario.'],
+    ['username', !/^[a-z0-9._-]+$/.test(username), 'Use solo letras minúsculas, números, punto o guion, sin espacios.'],
+    ['username', duplicate, `Ese usuario ya existe. Pruebe con “${suggestUsername(name || username)}”.`],
+    ['role', !input.role, 'Elija uno de los cuatro roles.'],
   ]);
   if (errors) return fail(errors);
   const id = input.id ?? newId('u');
   const existing = db().users.find((u) => u.id === id);
+  const role = input.role!;
   update((d) => ({
     users: existing
-      ? d.users.map((u) => (u.id === id ? { ...u, name: input.name.trim(), username, role: input.role, active: input.active } : u))
-      : [...d.users, { id, name: input.name.trim(), username, password: 'demo123', role: input.role, active: input.active }],
+      ? d.users.map((u) => (u.id === id ? { ...u, name, username, role, active: input.active } : u))
+      : [...d.users, { id, name, username, password: DEMO_PASSWORD, role, active: input.active, createdAt: nowIso(), mustChangePassword: true }],
   }));
-  audit('Usuario', id, existing ? 'Modificación' : 'Creación', existing ? `${existing.username} (${existing.role})` : undefined, `${username} (${input.role})`);
+  if (!existing) audit('Cuenta', username, 'Creó', undefined, `${roleLabels[role]} · ${input.active ? 'Activa' : 'Inactiva'}`);
+  else {
+    if (existing.role !== role) audit('Cuenta', username, 'Cambió rol', roleLabels[existing.role], roleLabels[role]);
+    if (existing.active !== input.active) audit('Cuenta', username, input.active ? 'Reactivó' : 'Desactivó', existing.active ? 'Activa' : 'Inactiva', input.active ? 'Activa' : 'Inactiva');
+    if (existing.name !== name || existing.username !== username) audit('Cuenta', username, 'Modificó', `${existing.name} · ${existing.username}`, `${name} · ${username}`);
+  }
   return ok(id);
 }
 
+/** Deactivating keeps the account and its history; it only blocks new logins (RF-03). */
 export function setUserActive(id: string, active: boolean) {
+  const user = db().users.find((u) => u.id === id)!;
+  if (user.active === active) return;
   update((d) => ({ users: d.users.map((u) => (u.id === id ? { ...u, active } : u)) }));
-  audit('Usuario', id, active ? 'Reactivación' : 'Desactivación', active ? 'Inactivo' : 'Activo', active ? 'Activo' : 'Inactivo');
+  audit('Cuenta', user.username, active ? 'Reactivó' : 'Desactivó', active ? 'Inactiva' : 'Activa', active ? 'Activa' : 'Inactiva');
 }
 
-// ---------------- catalog (RF-05, RF-06) ----------------
+/** Temporary password demo123; the user must change it on the next login (RF-03). */
+export function resetPassword(id: string) {
+  const user = db().users.find((u) => u.id === id)!;
+  update((d) => ({ users: d.users.map((u) => (u.id === id ? { ...u, password: DEMO_PASSWORD, mustChangePassword: true } : u)) }));
+  audit('Cuenta', user.username, 'Restableció contraseña', undefined, 'Cambio obligatorio al ingresar');
+}
+
+export function changePassword(userId: string, password: string, confirm: string): Result {
+  const errors = check([
+    ['password', password.length < 6, 'Use al menos 6 caracteres.'],
+    ['password', password === DEMO_PASSWORD, 'Use una contraseña distinta de la temporal.'],
+    ['confirm', password !== confirm, 'Las dos contraseñas no coinciden.'],
+  ]);
+  if (errors) return fail(errors);
+  update((d) => ({ users: d.users.map((u) => (u.id === userId ? { ...u, password, mustChangePassword: false } : u)) }));
+  return ok(undefined);
+}
+
+// ---------------- materials (RF-06) ----------------
+
+/** Enabled formulas (the current approved version of each product) that use a material. */
+export function formulasUsing(materialId: string, d: Database = db()): string[] {
+  return d.products
+    .map((p) => currentRecipe(d, p.id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r) && r!.items.some((i) => i.materialId === materialId))
+    .map((r) => r.id);
+}
 
 export function saveMaterial(input: { id?: string; code: string; name: string; type?: MaterialType; unit?: MaterialUnit }): Result<string> {
   const name = input.name.trim();
-  const code = input.code.trim().toUpperCase();
+  const existing = db().materials.find((m) => m.id === input.id);
+  // The code of an existing material does not change: formulas and prices use it.
+  const code = existing ? existing.code : input.code.trim().toUpperCase();
   const errors = check([
-    ['code', !code, 'Ingrese el código'],
-    ['code', db().materials.some((m) => m.code === code && m.id !== input.id), 'Ese código ya existe'],
-    ['name', !name, 'Ingrese el nombre'],
-    ['name', db().materials.some((m) => m.name.toLowerCase() === name.toLowerCase() && m.id !== input.id), 'Ya existe un insumo con ese nombre'],
-    ['type', !input.type, 'Seleccione el tipo'],
-    ['unit', !input.unit, 'Seleccione la unidad'],
+    ['code', !code, 'Ingrese el código.'],
+    ['code', !/^[A-Z0-9-]+$/.test(code), 'Use letras, números y guion, sin espacios.'],
+    ['code', db().materials.some((m) => m.active && m.code === code && m.id !== input.id), 'Ya existe un insumo activo con este código.'],
+    ['name', !name, 'Ingrese el nombre.'],
+    ['type', !input.type, 'Elija la categoría.'],
+    ['unit', !input.unit, 'Elija la unidad.'],
   ]);
   if (errors) return fail(errors);
   const id = input.id ?? newId('m');
   update((d) => ({
-    materials: input.id
-      ? d.materials.map((m) => (m.id === id ? { ...m, code, name, type: input.type!, unit: input.unit! } : m))
+    materials: existing
+      ? d.materials.map((m) => (m.id === id ? { ...m, name, type: input.type!, unit: input.unit! } : m))
       : [...d.materials, { id, code, name, type: input.type!, unit: input.unit!, active: true }],
   }));
+  const describe = (m: { name: string; type: MaterialType; unit: MaterialUnit }) => `${m.name} · ${materialTypeLabels[m.type]} · ${materialUnitLabels[m.unit]}`;
+  const after = describe({ name, type: input.type!, unit: input.unit! });
+  if (!existing) audit('Insumo', code, 'Creó', undefined, after);
+  else if (describe(existing) !== after) audit('Insumo', code, 'Modificó', describe(existing), after);
   return ok(id);
 }
 
-export function setMaterialActive(id: string, active: boolean) {
-  update((d) => ({ materials: d.materials.map((m) => (m.id === id ? { ...m, active } : m)) }));
+/** A deactivated material stays in history and in existing formulas, but is not offered in new ones (RF-06). */
+export function setMaterialActive(id: string, active: boolean): Result {
+  const m = db().materials.find((x) => x.id === id)!;
+  if (active && db().materials.some((x) => x.active && x.code === m.code && x.id !== id)) {
+    return fail({ code: 'Ya existe un insumo activo con este código.' });
+  }
+  update((d) => ({ materials: d.materials.map((x) => (x.id === id ? { ...x, active } : x)) }));
+  audit('Insumo', m.code, active ? 'Reactivó' : 'Desactivó', active ? 'Inactivo' : 'Activo', active ? 'Activo' : 'Inactivo');
+  return ok(undefined);
 }
 
 export function saveProduct(input: {
@@ -420,69 +487,202 @@ export function markNotificationsRead(userId: string) {
   update((d) => ({ notifications: d.notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n)) }));
 }
 
-// ---------------- prices and resource costs (RF-26, RF-29, RF-30) ----------------
+// ---------------- costing parameters (RF-25, RF-41) ----------------
 
-export function saveSupplierPrice(input: { materialId?: string; supplierId?: string; price: number; leadTimeDays?: number; validFrom: string }): Result<{ affects: boolean }> {
-  const supplier = db().suppliers.find((s) => s.id === input.supplierId);
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const usdH = (n: number) => `${formatNumber(n, 2)} USD/h`;
+
+/** New rate for a plant position; the previous one stays in history (RF-41). */
+export function savePositionRate(positionId: string, hourlyCost: number, validFrom: string): Result {
   const errors = check([
-    ['materialId', !input.materialId, 'Seleccione el insumo'],
-    ['supplierId', !supplier, 'Seleccione el proveedor'],
-    ['price', !isPositive(input.price), 'Ingrese un precio mayor que cero'],
-    ['leadTimeDays', supplier?.origin === 'imported' && !isPositive(input.leadTimeDays), 'Un precio importado exige el plazo de llegada en días'],
-    ['validFrom', !/^\d{4}-\d{2}-\d{2}$/.test(input.validFrom), 'Ingrese la vigencia como dd/mm/aaaa'],
+    ['hourlyCost', !isPositive(hourlyCost), 'Ingrese una tarifa mayor que cero.'],
+    ['validFrom', !ISO_DAY.test(validFrom), 'Ingrese la fecha como dd/mm/aaaa.'],
   ]);
   if (errors) return fail(errors);
-  const at = nowIso();
-  const oldPrice = referencePrice(db().supplierPrices, db().suppliers, input.materialId!, at);
-  const previousOwn = [...db().supplierPrices].reverse().find((p) => p.materialId === input.materialId && p.supplierId === input.supplierId);
+  const name = db().positions.find((p) => p.id === positionId)!.name;
+  const before = inForce(db().positionRates.filter((r) => r.positionId === positionId), validFrom);
+  update((d) => ({ positionRates: [...d.positionRates, { id: newId('prt'), positionId, hourlyCost, validFrom, createdBy: me() }] }));
+  audit('Tarifa', name.replace('Operario de ', 'Op. '), 'Modificó', before && usdH(before.hourlyCost), `${usdH(hourlyCost)} desde ${formatDate(validFrom)}`);
+  return ok(undefined);
+}
+
+/** Machine rate, throughput and status (RF-25, RF-41). */
+export function saveMachine(machineId: string, input: { hourlyCost: number; kgPerHour: number; active: boolean; validFrom: string }): Result {
+  const machine = db().machines.find((m) => m.id === machineId)!;
+  const current = inForce(db().machineRates.filter((r) => r.machineId === machineId), input.validFrom);
+  const errors = check([
+    ['hourlyCost', !isPositive(input.hourlyCost), 'Ingrese una tarifa mayor que cero.'],
+    ['kgPerHour', !isPositive(input.kgPerHour), 'Ingrese el rendimiento en kg/h, mayor que cero.'],
+    ['validFrom', !ISO_DAY.test(input.validFrom), 'Ingrese la fecha como dd/mm/aaaa.'],
+  ]);
+  if (errors) return fail(errors);
+  if (!current || current.hourlyCost !== input.hourlyCost) {
+    update((d) => ({ machineRates: [...d.machineRates, { id: newId('mrt'), machineId, hourlyCost: input.hourlyCost, validFrom: input.validFrom, createdBy: me() }] }));
+    audit('Tarifa', machine.code, 'Modificó', current && usdH(current.hourlyCost), `${usdH(input.hourlyCost)} desde ${formatDate(input.validFrom)}`);
+  }
+  if (machine.kgPerHour !== input.kgPerHour || machine.active !== input.active) {
+    update((d) => ({ machines: d.machines.map((m) => (m.id === machineId ? { ...m, kgPerHour: input.kgPerHour, active: input.active } : m)) }));
+    const state = (m: { kgPerHour: number; active: boolean }) => `${formatNumber(m.kgPerHour)} kg/h · ${m.active ? 'Operativa' : 'En mantenimiento'}`;
+    audit('Máquina', machine.code, 'Modificó', state(machine), state(input));
+  }
+  return ok(undefined);
+}
+
+export function saveIndirectRate(hourlyCost: number, validFrom: string): Result {
+  const errors = check([
+    ['indirect', !isPositive(hourlyCost), 'Ingrese una tasa mayor que cero.'],
+    ['validFrom', !ISO_DAY.test(validFrom), 'Ingrese la fecha como dd/mm/aaaa.'],
+  ]);
+  if (errors) return fail(errors);
+  const before = inForce(db().indirectRates, validFrom);
+  update((d) => ({ indirectRates: [...d.indirectRates, { id: newId('ind'), hourlyCost, validFrom, createdBy: me() }] }));
+  audit('Tarifa', 'Indirectos', 'Modificó', before && usdH(before.hourlyCost), `${usdH(hourlyCost)} desde ${formatDate(validFrom)}`);
+  return ok(undefined);
+}
+
+export const RULE_LABELS: Record<RuleKey, string> = {
+  minMargin: 'Ganancia mínima',
+  maxWastePct: 'Umbral de merma',
+  balanceTolerance: 'Tolerancia del balance',
+};
+
+/** Commercial and production rules with validity date; closed orders keep their values (RF-41). */
+export function saveRules(values: Record<RuleKey, number>, validFrom: string): Result<number> {
+  const errors = check([
+    ['minMargin', !(values.minMargin >= 0 && values.minMargin < 10), 'Ingrese un porcentaje entre 0 y 1.000.'],
+    ['maxWastePct', !(values.maxWastePct > 0 && values.maxWastePct < 1), 'Ingrese un porcentaje mayor que 0 y menor que 100.'],
+    ['balanceTolerance', !(values.balanceTolerance > 0 && values.balanceTolerance < 1), 'Ingrese un porcentaje mayor que 0 y menor que 100.'],
+    ['validFrom', !ISO_DAY.test(validFrom), 'Ingrese la fecha como dd/mm/aaaa.'],
+  ]);
+  if (errors) return fail(errors);
+  let changed = 0;
+  for (const key of Object.keys(values) as RuleKey[]) {
+    const current = db().settings[key];
+    if (Math.abs(current - values[key]) < 1e-9) continue;
+    changed++;
+    update((d) => ({
+      ruleRates: [...d.ruleRates, { id: newId('rule'), key, value: values[key], validFrom, createdBy: me() }],
+      settings: { ...d.settings, [key]: values[key] },
+    }));
+    audit('Regla', RULE_LABELS[key], 'Modificó', formatPercent(current), formatPercent(values[key]));
+  }
+  return ok(changed);
+}
+
+/** Kept for the previous version screens. */
+export function updateSettings(patch: Partial<Settings>) {
+  update((d) => ({ settings: { ...d.settings, ...patch } }));
+}
+
+// ---------------- suppliers and raw material prices (RF-42, RF-43, RF-44) ----------------
+
+export function saveSupplier(input: { name: string; origin?: Origin; contact?: string }): Result<string> {
+  const name = input.name.trim();
+  const errors = check([
+    ['supplierName', !name, 'Ingrese el nombre del proveedor.'],
+    ['supplierName', db().suppliers.some((s) => s.active !== false && s.name.toLowerCase() === name.toLowerCase()), 'Ya existe un proveedor activo con ese nombre.'],
+    ['origin', !input.origin, 'Elija si es local o importado.'],
+  ]);
+  if (errors) return fail(errors);
+  const id = newId('s');
+  update((d) => ({ suppliers: [...d.suppliers, { id, name, origin: input.origin!, contact: input.contact?.trim() || undefined, active: true }] }));
+  audit('Proveedor', name, 'Creó', undefined, input.origin === 'imported' ? 'Importado' : 'Local');
+  return ok(id);
+}
+
+/** New price reference from a purchase invoice; invoices and Dobra data do not change (RF-43). */
+export function saveSupplierPrice(input: {
+  materialId?: string;
+  supplierId?: string;
+  price: number;
+  priceUnit?: MaterialUnit;
+  leadTimeDays?: number;
+  includes?: string;
+  validFrom: string;
+}): Result<string> {
+  const supplier = db().suppliers.find((s) => s.id === input.supplierId);
+  const errors = check([
+    ['materialId', !input.materialId, 'Elija la materia prima.'],
+    ['supplierId', !supplier, 'Elija el proveedor.'],
+    ['supplierId', supplier?.active === false, 'El proveedor está desactivado: no admite precios nuevos.'],
+    ['price', !isPositive(input.price), 'Ingrese un precio mayor que cero.'],
+    ['leadTimeDays', supplier?.origin === 'imported' && !isPositive(input.leadTimeDays), 'Un precio importado exige el plazo de llegada en días.'],
+    ['includes', !input.includes?.trim(), supplier?.origin === 'imported' ? 'Indique qué incluye, por ejemplo «Producto y flete».' : 'Indique qué incluye, por ejemplo «Transporte; IVA aparte».'],
+    ['validFrom', !ISO_DAY.test(input.validFrom), 'Ingrese la fecha como dd/mm/aaaa.'],
+  ]);
+  if (errors) return fail(errors);
+  const material = db().materials.find((m) => m.id === input.materialId)!;
+  const previous = inForce(db().supplierPrices.filter((p) => p.materialId === material.id && p.supplierId === supplier!.id), input.validFrom);
   const id = newId('sp');
   update((d) => ({
     supplierPrices: [
       ...d.supplierPrices,
-      { id, materialId: input.materialId!, supplierId: input.supplierId!, price: input.price, leadTimeDays: supplier!.origin === 'imported' ? input.leadTimeDays : undefined, validFrom: input.validFrom, createdBy: me() },
+      {
+        id,
+        materialId: material.id,
+        supplierId: supplier!.id,
+        price: input.price,
+        priceUnit: input.priceUnit && input.priceUnit !== material.unit ? input.priceUnit : undefined,
+        leadTimeDays: input.leadTimeDays,
+        includes: input.includes!.trim(),
+        validFrom: input.validFrom,
+        createdBy: me(),
+      },
     ],
   }));
-  const material = db().materials.find((m) => m.id === input.materialId)!;
+  const unit = input.priceUnit === 'lb' ? 'USD/lb' : `USD/${material.unit === 'l' ? 'litro' : material.unit}`;
+  audit('Precio', `${material.code} · ${supplier!.name}`, 'Registró', previous && `${formatNumber(previous.price, 2)} ${unit}`, `${formatNumber(input.price, 2)} ${unit}`);
+  return ok(id);
+}
+
+/**
+ * Chooses the supplier whose price feeds new estimates (RF-44). Open quotes get a new revision when
+ * they are recalculated; accepted ones do not change.
+ */
+export function setReferenceSupplier(materialId: string, supplierId: string) {
+  const material = db().materials.find((m) => m.id === materialId)!;
+  const at = nowIso();
+  const before = referenceQuote(db().supplierPrices, db().suppliers, materialId, at, db().referencePrices);
+  if (before?.supplier.id === supplierId) return;
+  const supplier = db().suppliers.find((s) => s.id === supplierId)!;
+  update((d) => ({ referencePrices: [...d.referencePrices, { id: newId('ref'), materialId, supplierId, since: at, setBy: me() }] }));
+  audit('Precio de referencia', material.code, 'Cambió referencia', before && `${before.supplier.name} ${formatNumber(before.price.price, 2)}`, supplier.name);
+}
+
+// ---------------- CSV import (RF-50) ----------------
+
+/** All or nothing: imports only when the file has no errors, and records it in the log (RF-50). */
+export function importInitialData(text: string, fileName: string): Result<CatalogImport> {
+  const d = db();
+  const result = validateImport(text, d);
+  if (result.errors.length) return fail({ file: `${result.errors.length} filas tienen errores. No se importó ningún dato: corrija el archivo y vuelva a subirlo.` });
+  update((s) => ({
+    customers: [...s.customers, ...result.customers.map((c) => ({ ...c, id: newId('c') }))],
+    materials: [...s.materials, ...result.materials.map((m) => ({ ...m, id: newId('m') }))],
+    products: [
+      ...s.products,
+      ...result.products.map((p) => ({
+        id: newId('p'),
+        code: p.code,
+        name: p.name,
+        widthCm: p.widthCm,
+        lengthCm: p.lengthCm,
+        gauge: p.gauge,
+        weightG: p.weightG,
+        type: 'natural' as const,
+        lineId: s.productLines[0]?.id ?? 'ln-com',
+        active: true,
+      })),
+    ],
+  }));
   audit(
-    'Precio de proveedor',
-    id,
-    'Creación',
-    previousOwn ? `${material.code} ${supplier!.name} ${formatNumber(previousOwn.price, 2)} USD` : undefined,
-    `${material.code} ${supplier!.name} ${formatNumber(input.price, 2)} USD`,
+    'Importación',
+    fileName,
+    'Importó',
+    undefined,
+    `${result.customers.length} clientes · ${result.materials.length} insumos · ${result.products.length} productos`,
   );
-  const newPrice = referencePrice(db().supplierPrices, db().suppliers, input.materialId!, at);
-  useUiStore.getState().setLastPriceChange({ materialId: input.materialId!, supplierId: input.supplierId!, oldPrice, newPrice, at });
-  return ok({ affects: newPrice !== oldPrice });
-}
-
-export function savePositionRate(positionId: string, hourlyCost: number, validFrom: string): Result {
-  const errors = check([
-    ['hourlyCost', !isPositive(hourlyCost), 'Ingrese un costo por hora mayor que cero'],
-    ['validFrom', !/^\d{4}-\d{2}-\d{2}$/.test(validFrom), 'Ingrese la vigencia como dd/mm/aaaa'],
-  ]);
-  if (errors) return fail(errors);
-  const name = db().positions.find((p) => p.id === positionId)!.name;
-  const before = [...db().positionRates].reverse().find((r) => r.positionId === positionId);
-  update((d) => ({ positionRates: [...d.positionRates, { id: newId('prt'), positionId, hourlyCost, validFrom, createdBy: me() }] }));
-  audit('Costo hora cargo', positionId, 'Modificación', before && `${name} ${formatNumber(before.hourlyCost, 2)} USD/h`, `${name} ${formatNumber(hourlyCost, 2)} USD/h`);
-  return ok(undefined);
-}
-
-export function saveMachineRate(machineId: string, hourlyCost: number, validFrom: string): Result {
-  const errors = check([
-    ['hourlyCost', !isPositive(hourlyCost), 'Ingrese un costo por hora mayor que cero'],
-    ['validFrom', !/^\d{4}-\d{2}-\d{2}$/.test(validFrom), 'Ingrese la vigencia como dd/mm/aaaa'],
-  ]);
-  if (errors) return fail(errors);
-  const code = db().machines.find((m) => m.id === machineId)!.code;
-  const before = [...db().machineRates].reverse().find((r) => r.machineId === machineId);
-  update((d) => ({ machineRates: [...d.machineRates, { id: newId('mrt'), machineId, hourlyCost, validFrom, createdBy: me() }] }));
-  audit('Costo hora máquina', machineId, 'Modificación', before && `${code} ${formatNumber(before.hourlyCost, 2)} USD/h`, `${code} ${formatNumber(hourlyCost, 2)} USD/h`);
-  return ok(undefined);
-}
-
-export function updateSettings(patch: Partial<Settings>) {
-  update((d) => ({ settings: { ...d.settings, ...patch } }));
+  return ok(result);
 }
 
 // ---------------- reference prices (RF-36 to RF-38) ----------------
@@ -528,36 +728,23 @@ export function rejectProposal(id: string, reason: string): Result {
   return ok(undefined);
 }
 
-// ---------------- Dobra (RF-43, RF-44) ----------------
 
-/** Builds the export file with approved prices only and records it (RF-43). */
-export function exportToDobra(productIds: string[]): Result<{ fileName: string; csv: string }> {
-  const at = nowIso();
-  const rows = productIds
-    .map((id) => {
-      const product = db().products.find((p) => p.id === id)!;
-      const price = currentReferencePrice(db().priceProposals, id);
-      return price && { code: product.code, name: product.name, unitCost: standardCost(db(), id, at).unitCost, price: price.price, date: dateKey(at) };
-    })
-    .filter((r): r is NonNullable<typeof r> => Boolean(r));
-  if (!rows.length) return fail({ form: 'Seleccione al menos una funda con precio aprobado' });
-  const stamp = at.slice(0, 16).replace(/[-:T]/g, '');
-  const fileName = `segucost_dobra_${stamp.slice(0, 8)}_${stamp.slice(8)}.csv`;
-  update((d) => ({ dobraExports: [...d.dobraExports, { id: newId('dx'), at, userId: me(), fileName, productIds }] }));
-  audit('Exportación Dobra', fileName, 'Generación de archivo', undefined, `${rows.length} fundas`);
-  return ok({ fileName, csv: buildExportCsv(rows) });
+// ---------------- CSV export of approved costs and prices (RF-51) ----------------
+
+export const EXPORT_COLUMNS = 'codigo,producto,costo_unitario,precio,cotizacion,fecha';
+
+/** Own CSV format until spike SP-01 closes (CLAUDE.md section 9). Dot as decimal separator. */
+export function buildApprovedCsv(rows: ApprovedPrice[]): string {
+  const q = (t: string) => (/[",]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t);
+  return [EXPORT_COLUMNS, ...rows.map((r) => [r.code, q(r.name), r.unitCost.toFixed(4), r.price.toFixed(4), r.quote, r.date].join(','))].join('\n') + '\n';
 }
 
-/** Loads the valid rows of a catalog file and reports the rejected ones (RF-44). */
-export function importCatalog(text: string): ImportResult {
-  const d = db();
-  const result = validateCatalogImport(text, d);
-  update((s) => ({
-    materials: [...s.materials, ...result.materials.map((m) => ({ ...m, id: newId('m') }))],
-    products: [...s.products, ...result.products.map((p) => ({ ...p, id: newId('p') }))],
-    suppliers: [...s.suppliers, ...result.suppliers.map((x) => ({ ...x, id: newId('s') }))],
-  }));
-  const loaded = result.materials.length + result.products.length + result.suppliers.length;
-  audit('Importación de catálogo', 'catalogo', 'Carga de plantilla', undefined, `${loaded} cargadas · ${result.rejected.length} rechazadas · ${result.skipped.length} existentes`);
-  return result;
+export function exportApprovedPrices(productIds: string[]): Result<{ fileName: string; csv: string }> {
+  const rows = approvedPrices(db()).filter((r) => productIds.includes(r.productId));
+  if (!rows.length) return fail({ form: 'Seleccione al menos un producto con precio aprobado.' });
+  const at = nowIso();
+  const fileName = `costos_precios_${dateKey(at).replace(/-/g, '')}.csv`;
+  update((d) => ({ dobraExports: [...d.dobraExports, { id: newId('dx'), at, userId: me(), fileName, productIds: rows.map((r) => r.productId) }] }));
+  audit('Exportación', 'CSV', 'Exportó', undefined, `${rows.length} ${rows.length === 1 ? 'producto' : 'productos'}`);
+  return ok({ fileName, csv: buildApprovedCsv(rows) });
 }

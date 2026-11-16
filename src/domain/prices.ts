@@ -1,5 +1,6 @@
-// Prices and hourly rates in force at a date (RF-26, RF-27, RF-29, RF-30).
-import type { Origin, Supplier, SupplierPrice } from './types';
+// Prices and hourly rates in force at a date (RF-41, RF-43, RF-44).
+import { LB_PER_KG } from './conversion';
+import type { MaterialUnit, Origin, ReferencePrice, Supplier, SupplierPrice } from './types';
 
 /** 'YYYY-MM-DD' or ISO timestamp -> comparable 'YYYY-MM-DD' (local date). */
 export function dateKey(value: string): string {
@@ -44,12 +45,32 @@ export function quotesFor(prices: SupplierPrice[], suppliers: Supplier[], materi
 
 const ORIGIN_RANK: Record<Origin, number> = { own: 0, local: 0, imported: 1 };
 
+/** Supplier chosen as reference for a material at a date (RF-44). */
+export function referenceSupplierAt(references: ReferencePrice[], materialId: string, at: string): string | undefined {
+  const day = dateKey(at);
+  return references
+    .filter((r) => r.materialId === materialId && dateKey(r.since) <= day)
+    .sort((a, b) => a.since.localeCompare(b.since))
+    .pop()?.supplierId;
+}
+
 /**
- * Reference price of a material used for costing: the quote with the most recent validity (RF-26).
- * Ties (several suppliers updated the same day) prefer local or own supply, then the lowest price.
+ * Reference price of a material used for costing. When the Administradora chose a supplier (RF-44),
+ * its price in force is used; otherwise the quote with the most recent validity, preferring local or
+ * own supply and then the lowest price.
  */
-export function referenceQuote(prices: SupplierPrice[], suppliers: Supplier[], materialId: string, at: string): SupplierQuote | undefined {
-  return quotesFor(prices, suppliers, materialId, at).sort(
+export function referenceQuote(
+  prices: SupplierPrice[],
+  suppliers: Supplier[],
+  materialId: string,
+  at: string,
+  references: ReferencePrice[] = [],
+): SupplierQuote | undefined {
+  const quotes = quotesFor(prices, suppliers, materialId, at);
+  const chosen = referenceSupplierAt(references, materialId, at);
+  const chosenQuote = chosen && quotes.find((q) => q.supplier.id === chosen);
+  if (chosenQuote) return chosenQuote;
+  return quotes.sort(
     (a, b) =>
       b.price.validFrom.localeCompare(a.price.validFrom) ||
       ORIGIN_RANK[a.supplier.origin] - ORIGIN_RANK[b.supplier.origin] ||
@@ -57,6 +78,53 @@ export function referenceQuote(prices: SupplierPrice[], suppliers: Supplier[], m
   )[0];
 }
 
-export function referencePrice(prices: SupplierPrice[], suppliers: Supplier[], materialId: string, at: string): number {
-  return referenceQuote(prices, suppliers, materialId, at)?.price.price ?? 0;
+export function referencePrice(prices: SupplierPrice[], suppliers: Supplier[], materialId: string, at: string, references: ReferencePrice[] = []): number {
+  const quote = referenceQuote(prices, suppliers, materialId, at, references);
+  return quote ? normalizedPrice(quote.price) : 0;
+}
+
+/** Price per material unit; a price per lb becomes a price per kg (× 2,20462) (RF-44). */
+export function normalizedPrice(price: Pick<SupplierPrice, 'price' | 'priceUnit'>, materialUnit: MaterialUnit = 'kg'): number {
+  if (price.priceUnit === 'lb' && materialUnit === 'kg') return price.price * LB_PER_KG;
+  return price.price;
+}
+
+export interface PriceComparisonRow {
+  supplier: Supplier;
+  price: SupplierPrice;
+  /** Price per kg (or per material unit when it is not kg). */
+  unitPrice: number;
+  /** Difference against the best local price: +0,019 = 1,9 % more expensive. Undefined for the best local. */
+  vsBestLocal?: number;
+  isReference: boolean;
+}
+
+/**
+ * Comparison table of W-15 (RF-44): each supplier's price in force, normalized to USD/kg, with the
+ * difference against the best local price and arrival days. Local and own supply first, then imported,
+ * each by price.
+ */
+export function priceComparison(
+  prices: SupplierPrice[],
+  suppliers: Supplier[],
+  references: ReferencePrice[],
+  materialId: string,
+  materialUnit: MaterialUnit,
+  at: string,
+): PriceComparisonRow[] {
+  const quotes = quotesFor(prices, suppliers.filter((s) => s.active !== false), materialId, at).map((q) => ({
+    ...q,
+    unitPrice: normalizedPrice(q.price, materialUnit),
+  }));
+  const locals = quotes.filter((q) => q.supplier.origin !== 'imported');
+  const bestLocal = locals.length ? Math.min(...locals.map((q) => q.unitPrice)) : undefined;
+  const bestLocalId = locals.find((q) => q.unitPrice === bestLocal)?.supplier.id;
+  const reference = referenceQuote(prices, suppliers, materialId, at, references)?.supplier.id;
+  return quotes
+    .map((q) => ({
+      ...q,
+      vsBestLocal: bestLocal === undefined || q.supplier.id === bestLocalId ? undefined : (q.unitPrice - bestLocal) / bestLocal,
+      isReference: q.supplier.id === reference,
+    }))
+    .sort((a, b) => ORIGIN_RANK[a.supplier.origin] - ORIGIN_RANK[b.supplier.origin] || a.unitPrice - b.unitPrice);
 }

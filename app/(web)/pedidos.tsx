@@ -24,7 +24,7 @@ const EMPTY = { customerId: undefined as string | undefined, productId: undefine
 export default function SalesOrdersScreen() {
   const user = useCurrentUser()!;
   const db = useDataStore((s) => s.db);
-  const canEdit = can(user.role, 'salesOrders', 'full');
+  const canEdit = can(user.role, 'commercial', 'full');
   const canPlan = user.role === 'sup';
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});

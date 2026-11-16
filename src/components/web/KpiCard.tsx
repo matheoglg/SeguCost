@@ -5,6 +5,7 @@ import type { Tone } from '../StatusBadge';
 
 const ACCENT: Record<Tone, string> = {
   neutral: colors.primary,
+  dark: colors.primary,
   info: colors.primary,
   success: colors.success,
   alert: colors.alert,

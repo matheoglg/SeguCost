@@ -128,9 +128,13 @@ describe('prices in force (RF-26)', () => {
     expect(inForce(records, '2026-11-15')!.v).toBe(2);
     expect(inForce(records, '2026-08-01')).toBeUndefined();
   });
-  it('reference price prefers local on ties: PEBD 1,50', () => {
-    expect(referencePrice(db.supplierPrices, db.suppliers, 'm-pebd', NOW.toISOString())).toBe(1.5);
-    expect(quotesFor(db.supplierPrices, db.suppliers, 'm-pebd', NOW.toISOString())).toHaveLength(3);
+  it('without a chosen supplier, the latest price wins and ties prefer the cheapest local: PEBD 1,58', () => {
+    expect(referencePrice(db.supplierPrices, db.suppliers, 'm-pebd', NOW.toISOString())).toBe(1.58);
+    expect(quotesFor(db.supplierPrices, db.suppliers, 'm-pebd', NOW.toISOString())).toHaveLength(4);
+  });
+  it('the chosen reference supplier wins over newer prices of other suppliers (RF-44)', () => {
+    const prices = [...db.supplierPrices, { id: 'x', materialId: 'm-pebd', supplierId: 's-global', price: 1.3, leadTimeDays: 45, validFrom: '2026-11-02', createdBy: 'u' }];
+    expect(referencePrice(prices, db.suppliers, 'm-pebd', NOW.toISOString(), db.referencePrices)).toBe(1.58);
   });
   it('a newer price becomes the reference', () => {
     const prices = [...db.supplierPrices, { id: 'x', materialId: 'm-pebd', supplierId: 's-global', price: 1.3, leadTimeDays: 35, validFrom: '2026-11-02', createdBy: 'u' }];

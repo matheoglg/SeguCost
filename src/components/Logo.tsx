@@ -1,30 +1,29 @@
-// SEGUPLAST mark for the prototype: a plastic bag glyph plus the company and system names.
+// SeguCost mark from the Figma design: gold rounded square with an "S", plus system and company names.
 import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
 
 import { colors, font } from '@/theme';
 
-export function BagMark({ size = 40, inverted = false }: { size?: number; inverted?: boolean }) {
-  const bg = inverted ? colors.onPrimary : colors.primary;
-  const fg = inverted ? colors.primary : colors.onPrimary;
+/** Gold square with the "S" initial. */
+export function Mark({ size = 34 }: { size?: number }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 40 40">
-      <Rect width={40} height={40} rx={9} fill={bg} />
-      <Path d="M11 14h18l-2 18H13L11 14z" fill="none" stroke={fg} strokeWidth={2.2} strokeLinejoin="round" />
-      <Path d="M15.5 14v-2a4.5 4.5 0 0 1 9 0v2" fill="none" stroke={fg} strokeWidth={2.2} strokeLinecap="round" />
-    </Svg>
+    <View style={[styles.mark, { width: size, height: size, borderRadius: size * 0.22 }]}>
+      <Text style={[styles.markText, { fontSize: size * 0.56 }]}>S</Text>
+    </View>
   );
 }
 
-/** Company and system name; `inverted` for dark backgrounds. */
-export function Logo({ inverted = false, size = 40 }: { inverted?: boolean; size?: number }) {
+/**
+ * System name with the company below; `inverted` for dark backgrounds.
+ * `size` is the mark size; the text scales with it.
+ */
+export function Logo({ inverted = false, size = 34, subtitle = 'SEGUPLAST S.A.' }: { inverted?: boolean; size?: number; subtitle?: string }) {
   const text = inverted ? colors.onPrimary : colors.primary;
   return (
-    <View style={styles.row} accessibilityRole="header" accessibilityLabel="SEGUPLAST SeguCost">
-      <BagMark size={size} inverted={inverted} />
+    <View style={styles.row} accessibilityRole="header" accessibilityLabel={`SeguCost, ${subtitle}`}>
+      <Mark size={size} />
       <View>
-        <Text style={[styles.company, { color: text }]}>SEGUPLAST S.A.</Text>
-        <Text style={[styles.system, { color: text, fontSize: size * 0.5 }]}>SeguCost</Text>
+        <Text style={[styles.system, { color: text, fontSize: size * 0.53 }]}>SeguCost</Text>
+        <Text style={[styles.company, { color: inverted ? '#C9D3E0' : colors.textMuted, fontSize: Math.max(11, size * 0.32) }]}>{subtitle}</Text>
       </View>
     </View>
   );
@@ -32,6 +31,8 @@ export function Logo({ inverted = false, size = 40 }: { inverted?: boolean; size
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  company: { fontSize: 12, fontWeight: font.weight.bold, letterSpacing: 1.2 },
-  system: { fontWeight: font.weight.bold, lineHeight: 24 },
+  mark: { backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
+  markText: { color: colors.primary, fontWeight: font.weight.bold },
+  system: { fontWeight: font.weight.bold },
+  company: { letterSpacing: 0.2 },
 });

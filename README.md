@@ -1,7 +1,7 @@
 # SeguCost — prototipo
 
 Prototipo navegable de **SeguCost**, sistema de costeo y control de producción para SEGUPLAST S.A.
-Proyecto de Ingeniería de Software I, ESPOL, Equipo T4. Requerimientos: [docs/srs_segucost_es.pdf](docs/srs_segucost_es.pdf).
+Proyecto de Ingeniería de Software I, ESPOL, Equipo T4. Requerimientos: [docs/srs_segucost_es.pdf](docs/srs_segucost_es.pdf) (SRS v2.0). Instrucciones de implementación: [CLAUDE.md](CLAUDE.md).
 
 Una sola base de código (Expo + React Native + TypeScript) genera la aplicación web (oficina) y la app Android (planta).
 Usa datos simulados y no tiene backend.
@@ -64,17 +64,14 @@ npm run test:coverage     # pruebas con cobertura (costing.ts debe tener al meno
 npm run typecheck         # verificación de tipos
 ```
 
-## Guía rápida de los 7 flujos
+## Guía rápida de los flujos
 
-| Flujo | Usuario | Recorrido |
-|---|---|---|
-| 1. Catálogo | `admin` | Panel → Usuarios (Nuevo usuario) → Integración con Dobra › Importar › «Probar con archivo de ejemplo» → Insumos → Fundas (elegir tipo Impresa/Vivero) → Ver receta → Enviar a aprobación → Aprobación de recetas → Aprobar |
-| 2. Precios y recursos | `contabilidad`, `admin`, `rrhh` | Proveedores y precios: PEBD · Polímeros Demo · 1,58 → Ver impacto en costos → Local vs. importado (cambiar el umbral) → Costos de recursos |
-| 3. Pedido → orden | `ventas`, `supervisor` | Pedidos: Comercial Ejemplo, FI-4060, 10.000 → 125,00 kg / 275,58 lb · Guardar → (supervisor) Generar orden → asignar máquina y operarios → Liberar a planta |
-| 4. Planta | `operario1`, `operario2` | (vista móvil) Mis órdenes → etapa de extrusión → Iniciar → Pausa activa / Reanudar → Registrar producción → Registrar merma → Finalizar · `operario2`: etapa de empacado → Finalizar y cerrar orden → Resumen de turno |
-| 5. Supervisión | `supervisor` | Monitor de planta → «Abrir app móvil de planta» (alerta de merma de OP-0004) → OP-0003 Por validar → Corregir marcación → Validar cierre |
-| 6. Costeo y precio | `admin`, `ventas`, `facturacion` | Costeo de orden → Simular precio → comparar 3 márgenes → Proponer → (admin) Aprobación de precios (justificar si está bajo el mínimo) → (facturacion) Costos y precios vigentes |
-| 7. Análisis | `admin`, `contabilidad` | Reportes de tiempos → Descargar Excel → Tablero de costos y mermas (cambiar período) → Integración con Dobra › Generar archivo → Bitácora |
+La aplicación se está actualizando al SRS v2.0 (`CLAUDE.md`, capturas en `docs/capturas/`), flujo por flujo.
+
+| Flujo | Usuario | Recorrido | Estado |
+|---|---|---|---|
+| 1. Configuración inicial | `admin` | Panel principal → Usuarios y roles › Nueva cuenta (probar el usuario `supervisor` para ver la sugerencia) → Importar y exportar › «ejemplo con errores» (2 filas con error, no importa nada) › «ejemplo corregido» › Importar → Materias primas e insumos (aparece ADT-02) → Parámetros de costeo (tocar un cargo, nueva tarifa, Guardar cambios) → Precios de materias primas › Registrar precio / Usar como referencia | Listo (v2.0) |
+| 2 a 7 | — | Se actualizan en orden. Mientras tanto, el menú muestra la pantalla de cada uno con el aviso del flujo en que se completa; las pantallas móviles siguen en la versión anterior. | En curso |
 
 Los cambios de un flujo se mantienen mientras no se recargue la página, así que se puede cerrar sesión y entrar con otro rol para seguir el recorrido.
 
@@ -82,16 +79,15 @@ Los cambios de un flujo se mantienen mientras no se recargue la página, así qu
 
 Contraseña de todos: `demo123`.
 
-| Usuario | Rol | Inicia en |
-|---|---|---|
-| `admin` | Administradora Principal | Panel principal |
-| `ventas` | Jefe de Ventas | Panel principal |
-| `contabilidad` | Responsable Contable | Panel principal |
-| `facturacion` | Encargada de Facturación | Costos y precios vigentes |
-| `rrhh` | Encargada de RR. HH. | Costos de recursos |
-| `supervisor` | Supervisor de Planta | Monitor de planta (web) / Planta (móvil) |
-| `operario1` | Operario de Producción (extrusión) | Mis órdenes (móvil) |
-| `operario2` | Operario de Producción (sellado y empacado) | Mis órdenes (móvil) |
+| Usuario | Nombre | Rol | Inicia en |
+|---|---|---|---|
+| `admin` | Bélgica Loza | Administradora Principal | Panel principal |
+| `ventas` | Daniel Ríos | Jefe de Ventas | Panel principal |
+| `supervisor` | Jorge Castillo | Supervisor de Planta | Panel principal (web) / Seguimiento (móvil) |
+| `operario1` | Luis Bravo | Operario de Producción (extrusión) | Mis actividades (móvil) |
+| `operario2` | Pedro Alvarado | Operario de Producción (sellado y empacado) | Mis actividades (móvil) |
+| `aruiz` | Ana Ruiz | Operario de Producción (impresión) | Mis actividades (móvil) |
+| `operario3` | Carlos Vera | Operario de Producción (cuenta inactiva) | — |
 
 ## Estructura
 

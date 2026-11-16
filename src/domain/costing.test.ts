@@ -39,14 +39,14 @@ describe('computeOrderCost', () => {
   const cost = computeOrderCost(db, op1.id, op1.closedAt!);
 
   it('costs materials from raw material used × recipe × price in force at closing', () => {
-    // 122 kg × (0,60 × 1,48 PEBD + 0,35 × 0,60 REC + 0,05 × 3,15 PIG-N), October prices
-    expect(cost.materials).toBe(153.17);
+    // 122 kg × (0,60 × 1,50 PEBD + 0,35 × 0,60 REC + 0,05 × 3,15 PIG-N), October prices of the reference suppliers
+    expect(cost.materials).toBe(154.64);
     expect(cost.lines.filter((l) => l.kind === 'material').map((l) => l.refId)).toEqual(['m-pebd', 'm-rec', 'm-pign']);
   });
 
   it('labor counts effective hours only (pauses excluded)', () => {
-    // Hugo 4,5 h × 3,25 + Iván (5 h 20 min + 1 h 30 min) × 3,00 + Kevin 2 h 50 min × 3,00
-    expect(cost.labor).toBe(43.63);
+    // Luis 4,5 h × 2,95 (extrusión, October) + Pedro (5 h 20 min + 1 h 30 min) × 2,95 + Ana 2 h 50 min × 3,25
+    expect(cost.labor).toBe(42.64);
     expect(cost.lines.find((l) => l.kind === 'labor' && l.refId === 'u-op1')!.quantity).toBeCloseTo(4.5, 6);
   });
 
@@ -92,11 +92,12 @@ describe('standard cost and recalculation (RF-34)', () => {
     expect(currentRecipe(db, 'p-fb2636').status).toBe('approved'); // v2 is still a draft
   });
 
-  it('FN-2030: (material 1,518 + conversion 0,9167 USD/kg) × 4 g = 0,0097', () => {
+  it('FN-2030: (material 1,586 + conversion 0,9082 USD/kg) × 4 g = 0,0100', () => {
+    // material 0,85 × 1,58 + 0,15 × 1,62; conversion (3,10 + 8,50) / 25 + (2,95 + 5,00) / 20 + 2,80 / 60
     const std = standardCost(db, 'p-fn2030', at);
-    expect(std.materialPerKg).toBe(1.518);
-    expect(std.conversionPerKg).toBe(0.9167);
-    expect(std.unitCost).toBe(0.0097);
+    expect(std.materialPerKg).toBe(1.586);
+    expect(std.conversionPerKg).toBe(0.9082);
+    expect(std.unitCost).toBe(0.01);
   });
 
   it('only recalculates products whose approved recipe uses the material', () => {

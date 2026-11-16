@@ -22,10 +22,14 @@ interface DataTableProps<T> {
   selectedKey?: string;
   emptyText?: string;
   highlight?: (row: T) => 'alert' | 'success' | undefined;
+  /** Own border and rounded corners, as the stand-alone tables of the captures. */
+  framed?: boolean;
+  /** Footer row inside the frame (totals, pagination). */
+  footer?: ReactNode;
   testID?: string;
 }
 
-export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, emptyText = 'Sin registros.', highlight, testID }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, emptyText = 'Sin registros.', highlight, framed, footer, testID }: DataTableProps<T>) {
   const minWidth = columns.reduce((t, c) => t + (c.minWidth ?? 120), 0);
   // Explicit width: inside a horizontal ScrollView long texts would otherwise widen the row
   // and push the last columns out of view.
@@ -39,7 +43,13 @@ export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, e
   });
 
   return (
-    <ScrollView horizontal contentContainerStyle={styles.scroll} testID={testID} onLayout={(e) => setAvailable(e.nativeEvent.layout.width)}>
+    <ScrollView
+      horizontal
+      style={framed && styles.frame}
+      contentContainerStyle={styles.scroll}
+      testID={testID}
+      onLayout={(e) => setAvailable(e.nativeEvent.layout.width - (framed ? 2 : 0))}
+    >
       <View style={[styles.table, { width: Math.max(minWidth, available) }]}>
         <View style={[styles.row, styles.headerRow]}>
           {columns.map((c) => (
@@ -49,7 +59,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, e
           ))}
         </View>
         {rows.length === 0 && <Text style={styles.empty}>{emptyText}</Text>}
-        {rows.map((row) => {
+        {rows.map((row, i) => {
           const key = rowKey(row);
           const mark = highlight?.(row);
           const content = columns.map((c) => {
@@ -70,6 +80,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, e
             mark === 'alert' && styles.rowAlert,
             mark === 'success' && styles.rowSuccess,
             selectedKey === key && styles.rowSelected,
+            i === rows.length - 1 && !footer && styles.lastRow,
           ];
           return onRowPress ? (
             <Pressable key={key} onPress={() => onRowPress(row)} style={(s) => [...rowStyle, (s as { hovered?: boolean }).hovered && styles.rowHover]} accessibilityRole="button">
@@ -81,6 +92,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowPress, selectedKey, e
             </View>
           );
         })}
+        {footer}
       </View>
     </ScrollView>
   );
@@ -90,15 +102,17 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   table: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  headerRow: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  bodyRow: { borderBottomWidth: 1, borderBottomColor: colors.surface, minHeight: 48 },
-  rowHover: { backgroundColor: '#F6F8FB' },
-  rowSelected: { backgroundColor: colors.restBg },
+  frame: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.background },
+  headerRow: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border, minHeight: 41, borderLeftWidth: 3, borderLeftColor: 'transparent' },
+  bodyRow: { borderBottomWidth: 1, borderBottomColor: colors.border, minHeight: 48, backgroundColor: colors.background, borderLeftWidth: 3, borderLeftColor: 'transparent' },
+  lastRow: { borderBottomWidth: 0 },
+  rowHover: { backgroundColor: '#F7F9FC' },
+  rowSelected: { backgroundColor: '#E8EFF8', borderLeftColor: colors.primary },
   rowAlert: { backgroundColor: colors.alertBg },
   rowSuccess: { backgroundColor: colors.successBg },
-  cell: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, justifyContent: 'center' },
-  headerText: { fontSize: 12, fontWeight: font.weight.bold, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
-  cellText: { fontSize: font.size.sm + 1, color: colors.text },
+  cell: { paddingHorizontal: spacing.lg, paddingVertical: 10, justifyContent: 'center' },
+  headerText: { fontSize: 12, fontWeight: font.weight.semibold, color: colors.textMuted },
+  cellText: { fontSize: 15, color: colors.text },
   right: { textAlign: 'right', fontVariant: ['tabular-nums'] },
   empty: { padding: spacing.lg, color: colors.textMuted, fontSize: font.size.md },
 });

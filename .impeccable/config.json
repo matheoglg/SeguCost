@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-11-16T19:46:07.902Z",
+        "reason": "CLAUDE.md section 5 mandates Inter (approved Figma design)"
+      }
+    ]
+  }
+}

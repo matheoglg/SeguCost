@@ -31,7 +31,7 @@ export default function RecipeScreen() {
   const { funda } = useLocalSearchParams<{ funda: string }>();
   const user = useCurrentUser()!;
   const db = useDataStore((s) => s.db);
-  const canEdit = can(user.role, 'catalog', 'full');
+  const canEdit = can(user.role, 'productSheets', 'full');
   const product = db.products.find((p) => p.id === funda) ?? db.products[0];
   const recipes = db.recipes.filter((r) => r.productId === product.id).sort((a, b) => b.version - a.version);
   const approved = currentRecipe(db, product.id);

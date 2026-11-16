@@ -1,5 +1,5 @@
 import { unitsToWeight } from './conversion';
-import { can } from './permissions';
+import { can, MONEY_FEATURES, seesAmounts } from './permissions';
 import { round2, round4 } from './rounding';
 import { buildRoute } from './routing';
 
@@ -24,21 +24,29 @@ describe('buildRoute (RF-11)', () => {
   });
 });
 
-describe('can (RF-03, Tabla 5.1)', () => {
-  it('operario no ve costos ni precios', () => {
-    expect(can('ope', 'orderCosts')).toBe(false);
-    expect(can('ope', 'priceLookup')).toBe(false);
-    expect(can('ope', 'laborCost')).toBe(false);
-    expect(can('ope', 'mobileRecording', 'full')).toBe(true);
+describe('can (RF-04, Tabla 6.1 del SRS v2.0)', () => {
+  const ROLES = ['adm', 'ven', 'sup', 'ope'] as const;
+  it('ope no ve montos', () => {
+    expect(seesAmounts('ope')).toBe(false);
+    for (const f of MONEY_FEATURES) expect(can('ope', f)).toBe(false);
+    expect(can('ope', 'productionRecording', 'full')).toBe(true);
   });
-  it('solo administración y RR. HH. ven el costo de mano de obra (RF-29)', () => {
-    const roles = (['adm', 'ven', 'con', 'fac', 'rrhh', 'sup', 'ope'] as const).filter((r) => can(r, 'laborCost'));
-    expect(roles).toEqual(['adm', 'rrhh']);
+  it('solo la Administradora autoriza excepciones y gestiona cuentas, parámetros y CSV', () => {
+    for (const f of ['exceptions', 'users', 'costParams', 'csv', 'actualCost'] as const) {
+      expect(ROLES.filter((r) => can(r, f))).toEqual(['adm']);
+    }
+  });
+  it('el Supervisor edita fichas y fórmulas; Administradora y Ventas solo consultan', () => {
+    expect(ROLES.filter((r) => can(r, 'productSheets', 'full'))).toEqual(['sup']);
+    expect(ROLES.filter((r) => can(r, 'productSheets'))).toEqual(['adm', 'ven', 'sup']);
+  });
+  it('costo estimado: Administradora y Ventas', () => {
+    expect(ROLES.filter((r) => can(r, 'estimatedCost'))).toEqual(['adm', 'ven']);
   });
   it('consulta (C) no permite edición', () => {
-    expect(can('ven', 'catalog')).toBe(true);
-    expect(can('ven', 'catalog', 'full')).toBe(false);
-    expect(can('fac', 'priceLookup', 'full')).toBe(false);
+    expect(can('sup', 'commercial')).toBe(true);
+    expect(can('sup', 'commercial', 'full')).toBe(false);
+    expect(can('ven', 'materials', 'full')).toBe(false);
   });
 });
 

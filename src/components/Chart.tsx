@@ -20,11 +20,16 @@ interface ChartProps {
   height?: number;
   title?: string;
   testID?: string;
+  /** Captures style: no Y axis labels and no end labels; values are read from the tooltip. */
+  compact?: boolean;
+  /** Shows the legend (default: when there are 2 or more series). */
+  legend?: boolean;
 }
 
 const PAD = { top: 16, right: 16, bottom: 28, left: 64 };
 // SVG text does not inherit the page font on the web.
-const SVG_FONT = Platform.OS === 'web' ? 'Segoe UI, Roboto, Helvetica, Arial, sans-serif' : undefined;
+const SVG_FONT = Platform.OS === 'web' ? 'Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif' : undefined;
+const GRID = '#E6EAF0';
 
 function niceTicks(min: number, max: number, count = 4): number[] {
   if (min === max) max = min + 1;
@@ -45,8 +50,8 @@ function useWidth(initial = 600) {
 
 const colorOf = (s: Series, i: number) => s.color ?? chartColors[i % chartColors.length];
 
-function Legend({ series, kind }: { series: Series[]; kind: 'line' | 'bar' }) {
-  if (series.length < 2) return null;
+function Legend({ series, kind, show }: { series: Series[]; kind: 'line' | 'bar'; show?: boolean }) {
+  if (!(show ?? series.length >= 2)) return null;
   return (
     <View style={styles.legend}>
       {series.map((s, i) => (
@@ -98,7 +103,7 @@ function HitColumns({ count, x0, step, height, onHover }: { count: number; x0: n
   );
 }
 
-export function LineChart({ categories, series, formatValue, height = 240, title, testID }: ChartProps) {
+export function LineChart({ categories, series, formatValue, height = 240, title, testID, compact, legend }: ChartProps) {
   const { width, onLayout } = useWidth();
   const [hover, setHover] = useState<number | null>(null);
   const values = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
@@ -108,11 +113,13 @@ export function LineChart({ categories, series, formatValue, height = 240, title
   const ticks = niceTicks(min - span * 0.1, max + span * 0.1);
   const yMin = ticks[0];
   const yMax = ticks[ticks.length - 1];
-  const labelSpace = series.length > 1 ? 72 : 0;
-  const plotW = width - PAD.left - PAD.right - labelSpace;
+  const labelSpace = series.length > 1 && !compact ? 72 : 0;
+  const left = compact ? 8 : PAD.left;
+  const right = compact ? 8 : PAD.right;
+  const plotW = width - left - right - labelSpace;
   const plotH = height - PAD.top - PAD.bottom;
   const step = categories.length > 1 ? plotW / (categories.length - 1) : plotW;
-  const x = (i: number) => PAD.left + (categories.length > 1 ? i * step : plotW / 2);
+  const x = (i: number) => left + (categories.length > 1 ? i * step : plotW / 2);
   const y = (v: number) => PAD.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
 
   // Direct end labels, nudged apart so they never overlap (min 14 px).
@@ -127,13 +134,13 @@ export function LineChart({ categories, series, formatValue, height = 240, title
 
   return (
     <View testID={testID} accessibilityLabel={title}>
-      <Legend series={series} kind="line" />
+      <Legend series={series} kind="line" show={legend} />
       <View onLayout={onLayout} style={{ height }}>
         <Svg width={width} height={height}>
           {ticks.map((t) => (
-            <Line key={t} x1={PAD.left} x2={PAD.left + plotW} y1={y(t)} y2={y(t)} stroke={colors.surface} strokeWidth={1} />
+            <Line key={t} x1={left} x2={left + plotW} y1={y(t)} y2={y(t)} stroke={GRID} strokeWidth={1} />
           ))}
-          {ticks.map((t) => (
+          {!compact && ticks.map((t) => (
             <SvgText fontFamily={SVG_FONT} key={`l${t}`} x={PAD.left - 8} y={y(t) + 4} fontSize={11} fill={colors.textMuted} textAnchor="end">
               {formatValue(t)}
             </SvgText>
@@ -169,7 +176,7 @@ export function LineChart({ categories, series, formatValue, height = 240, title
               </SvgText>
             ))}
         </Svg>
-        <HitColumns count={categories.length} x0={PAD.left} step={step} height={plotH} onHover={setHover} />
+        <HitColumns count={categories.length} x0={left} step={step} height={plotH} onHover={setHover} />
         {hover !== null && (
           <Tooltip
             title={categories[hover]}
@@ -258,11 +265,11 @@ export function BarChart({ categories, series, formatValue, height = 260, stacke
 }
 
 const styles = StyleSheet.create({
-  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, marginBottom: spacing.sm },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, marginBottom: spacing.md },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendLine: { width: 16, height: 3, borderRadius: 2 },
   legendBox: { width: 12, height: 12, borderRadius: 3 },
-  legendText: { fontSize: font.size.sm, color: colors.text },
+  legendText: { fontSize: 12, color: colors.textMuted },
   tooltip: {
     position: 'absolute',
     top: 0,

@@ -19,6 +19,7 @@ export function SelectField<V extends string>({
   onChange,
   placeholder = 'Seleccione…',
   error,
+  hint,
   disabled,
   testID,
 }: {
@@ -28,6 +29,7 @@ export function SelectField<V extends string>({
   onChange: (value: V) => void;
   placeholder?: string;
   error?: string;
+  hint?: string;
   disabled?: boolean;
   testID?: string;
 }) {
@@ -47,11 +49,9 @@ export function SelectField<V extends string>({
         <Text style={[styles.selectText, !selected && styles.placeholder]} numberOfLines={1}>
           {selected?.label ?? placeholder}
         </Text>
-        <View style={{ transform: [{ rotate: '90deg' }] }}>
-          <Icon name="chevronRight" color={colors.textMuted} size={18} />
-        </View>
+        <Icon name="chevronDown" color={colors.text} size={16} />
       </Pressable>
-      {!!error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <View style={styles.sheet} onStartShouldSetResponder={() => true}>
@@ -128,6 +128,29 @@ export function Segmented<V extends string>({
   );
 }
 
+/** Connected toggle group ("Todas (4) | En proceso (2)", "Normal | Urgente"). */
+export function ToggleGroup<V extends string>({ value, options, onChange, testID }: { value: V; options: Option<V>[]; onChange: (v: V) => void; testID?: string }) {
+  return (
+    <View style={styles.toggle} accessibilityRole="radiogroup">
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            testID={testID ? `${testID}-${o.value}` : undefined}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(o.value)}
+            style={[styles.toggleItem, active && styles.toggleActive]}
+          >
+            <Text style={[styles.toggleText, active && styles.toggleTextActive]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Tabs<V extends string>({ value, options, onChange }: { value: V; options: Option<V>[]; onChange: (v: V) => void }) {
   return (
     <View style={styles.tabs} accessibilityRole="tablist">
@@ -143,35 +166,51 @@ export function Tabs<V extends string>({ value, options, onChange }: { value: V;
   );
 }
 
-export function Checkbox({ label, checked, onChange, testID }: { label: string; checked: boolean; onChange: (v: boolean) => void; testID?: string }) {
+/** Checkbox; `large` is the plant size (48 dp row, 16 sp text, RNF-02). */
+export function Checkbox({ label, checked, onChange, testID, large, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; testID?: string; large?: boolean; disabled?: boolean }) {
   return (
-    <Pressable testID={testID} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => onChange(!checked)} style={styles.checkRow}>
-      <View style={[styles.box, checked && styles.boxChecked]}>{checked && <Icon name="check" color={colors.onPrimary} size={16} />}</View>
-      <Text style={styles.checkLabel}>{label}</Text>
+    <Pressable
+      testID={testID}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked, disabled: !!disabled }}
+      disabled={disabled}
+      onPress={() => onChange(!checked)}
+      style={[styles.checkRow, large && styles.checkRowLarge]}
+    >
+      <View style={[styles.box, large && styles.boxLarge, checked && styles.boxChecked]}>
+        {checked && <Icon name="check" color={colors.onPrimary} size={large ? 18 : 14} strokeWidth={2.5} />}
+      </View>
+      {!!label && <Text style={[styles.checkLabel, large && styles.checkLabelLarge]}>{label}</Text>}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  field: { gap: spacing.xs },
-  label: { fontSize: font.size.sm, fontWeight: font.weight.bold, color: colors.text },
+  field: { gap: 6 },
+  label: { fontSize: 13, fontWeight: font.weight.medium, color: colors.text },
   largeLabel: { fontSize: font.size.md },
   select: {
-    minHeight: 44,
+    height: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.background,
   },
   selectError: { borderColor: colors.alert },
   disabled: { backgroundColor: colors.surface },
-  selectText: { flex: 1, fontSize: font.size.md, color: colors.text },
+  selectText: { flex: 1, fontSize: 15, color: colors.text },
   placeholder: { color: colors.textMuted },
-  error: { fontSize: font.size.sm, color: colors.alert },
+  error: { fontSize: 12, color: colors.alert },
+  hint: { fontSize: 12, color: colors.textMuted },
+  toggle: { flexDirection: 'row', alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, backgroundColor: colors.background, overflow: 'hidden' },
+  toggleItem: { paddingHorizontal: 14, height: 32, justifyContent: 'center' },
+  toggleActive: { backgroundColor: colors.primary },
+  toggleText: { fontSize: 14, color: colors.text, fontWeight: font.weight.medium },
+  toggleTextActive: { color: colors.onPrimary, fontWeight: font.weight.semibold },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   sheet: { width: '100%', maxWidth: 440, backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   sheetTitle: { fontSize: font.size.lg, fontWeight: font.weight.bold, color: colors.primary, marginBottom: spacing.xs },
@@ -198,13 +237,16 @@ const styles = StyleSheet.create({
   segmentTextLarge: { fontSize: font.size.lg, fontWeight: font.weight.bold },
   segmentTextActive: { color: colors.onPrimary },
   segmentDetail: { fontSize: font.size.sm, color: colors.textMuted },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, gap: spacing.lg },
-  tab: { paddingVertical: spacing.md, borderBottomWidth: 3, borderBottomColor: 'transparent', marginBottom: -1 },
+  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, gap: spacing.sm },
+  tab: { paddingHorizontal: spacing.lg, paddingTop: 6, paddingBottom: 14, borderBottomWidth: 3, borderBottomColor: 'transparent', marginBottom: -1 },
   tabActive: { borderBottomColor: colors.primary },
-  tabText: { fontSize: font.size.md, color: colors.textMuted, fontWeight: font.weight.medium },
-  tabTextActive: { color: colors.primary, fontWeight: font.weight.bold },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 40 },
-  box: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  boxChecked: { backgroundColor: colors.primary },
-  checkLabel: { fontSize: font.size.md, color: colors.text },
+  tabText: { fontSize: 15, color: colors.textMuted, fontWeight: font.weight.medium },
+  tabTextActive: { color: colors.primary, fontWeight: font.weight.semibold },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 32 },
+  box: { width: 20, height: 20, borderRadius: 4, borderWidth: 1.5, borderColor: colors.inputBorder, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
+  boxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkLabel: { fontSize: 15, color: colors.text },
+  checkRowLarge: { minHeight: 48, gap: 14 },
+  boxLarge: { width: 26, height: 26, borderRadius: 5 },
+  checkLabelLarge: { fontSize: 17 },
 });

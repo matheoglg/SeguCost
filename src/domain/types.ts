@@ -1,8 +1,9 @@
-// Domain model of SeguCost. Mirrors the logical data model (SRS Table 7.1).
+// Domain model of SeguCost. Mirrors the logical data model of the SRS v2.0.
 // Identifiers in English; user-facing labels live in labels.ts.
 // Dates are ISO strings: 'YYYY-MM-DD' for calendar dates, full ISO for timestamps.
 
-export type Role = 'adm' | 'ven' | 'con' | 'fac' | 'rrhh' | 'sup' | 'ope';
+/** The four business roles (RF-03): Administradora, Jefe de Ventas, Supervisor, Operario. */
+export type Role = 'adm' | 'ven' | 'sup' | 'ope';
 
 export interface User {
   id: string;
@@ -11,8 +12,11 @@ export interface User {
   password: string; // prototype only: no real authentication (out of scope)
   role: Role;
   active: boolean;
-  positionId?: string; // plant position, used for labor cost (RF-29, RF-32)
+  positionId?: string; // plant position, used for labor cost (RF-41, RF-46)
   shift?: string;
+  createdAt?: string;
+  /** Set when the Administradora resets the password; asked again on next login (RF-03). */
+  mustChangePassword?: boolean;
 }
 
 export type MaterialType = 'resin' | 'pigment' | 'ink' | 'additive' | 'recycled';
@@ -33,16 +37,32 @@ export interface Supplier {
   id: string;
   name: string;
   origin: Origin;
+  contact?: string;
+  active?: boolean; // undefined = active (RF-42)
 }
 
 export interface SupplierPrice {
   id: string;
   materialId: string;
   supplierId: string;
-  price: number; // USD per material unit
-  leadTimeDays?: number; // required when the supplier is imported (RF-26)
+  price: number; // USD per `priceUnit` (per material unit when absent)
+  priceUnit?: MaterialUnit; // a price per lb is compared converted to kg (RF-44)
+  leadTimeDays?: number; // days to arrive; required when the supplier is imported (RF-43)
+  includes?: string; // what the price covers: "Producto y flete", "Transporte; IVA aparte" (RF-43)
   validFrom: string;
   createdBy: string;
+}
+
+/**
+ * Supplier chosen as price reference for new estimates (RF-44). The latest `since` is the one in
+ * force; the price is that supplier's price in force at the estimate date.
+ */
+export interface ReferencePrice {
+  id: string;
+  materialId: string;
+  supplierId: string;
+  since: string;
+  setBy: string;
 }
 
 export type ProductType = 'natural' | 'printed' | 'nursery';
@@ -147,7 +167,8 @@ export interface Machine {
   id: string;
   code: string;
   section: MachineSection;
-  active: boolean;
+  active: boolean; // false = en mantenimiento (RF-25)
+  kgPerHour: number; // standard throughput used to estimate hours (RF-25)
 }
 
 export interface ProductionRecord {
@@ -210,6 +231,25 @@ export interface MachineRate {
   id: string;
   machineId: string;
   hourlyCost: number;
+  validFrom: string;
+  createdBy: string;
+}
+
+/** Indirect cost rate per productive hour: utilities and plant expenses (RF-41). */
+export interface IndirectRate {
+  id: string;
+  hourlyCost: number;
+  validFrom: string;
+  createdBy: string;
+}
+
+export type RuleKey = 'minMargin' | 'maxWastePct' | 'balanceTolerance';
+
+/** History of the commercial and production rules (RF-41); `value` is a fraction. */
+export interface RuleRate {
+  id: string;
+  key: RuleKey;
+  value: number;
   validFrom: string;
   createdBy: string;
 }
@@ -292,8 +332,50 @@ export interface Notification {
   read: boolean;
 }
 
+// ---- commercial (RF-12 to RF-24) ----
+
+export type QuoteStatus = 'draft' | 'pendingAuthorization' | 'authorized' | 'rejected' | 'confirmed';
+export type ExceptionStatus = 'pending' | 'authorized' | 'rejected';
+
+export interface QuoteLine {
+  id: string;
+  productId: string;
+  quantity: number;
+  materials: number; // estimated material cost, USD (RF-45)
+  transformation: number; // labor + machine + indirect, USD
+  marginPct: number; // fraction over cost (RF-17)
+}
+
+/** Commercial exception: a quote line below the minimum margin (RF-18, RF-19). */
+export interface QuoteException {
+  lineId: string;
+  marginPct: number;
+  minMargin: number;
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  status: ExceptionStatus;
+  decidedBy?: string;
+  decidedAt?: string;
+  observation?: string;
+}
+
+export interface Quote {
+  id: string;
+  code: string;
+  customerId: string;
+  revision: number;
+  lines: QuoteLine[];
+  status: QuoteStatus;
+  exception?: QuoteException;
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface Settings {
-  maxWastePct: number; // fraction, default 0.03 (S-4)
+  minMargin: number; // fraction over cost, one for all quotes (RF-41)
+  balanceTolerance: number; // fraction, material balance tolerance (RF-33)
+  maxWastePct: number; // fraction, waste threshold per stage (RF-41)
   localImportThreshold: number; // fraction, default 0.10 (S-4)
   marginMethod: MarginMethod; // default on cost (S-4)
   wasteRecoveryPerKg: Record<WasteDestination, number>; // USD/kg credited as VR (RF-33)
@@ -308,7 +390,7 @@ export interface MonthlyUnitCost {
 
 export interface MonthlyWaste {
   month: string;
-  section: MachineSection;
+  section: MachineSection | 'packing' | 'all'; // 'all' = weighted plant average
   wastePct: number; // fraction
 }
 
@@ -319,6 +401,7 @@ export interface Database {
   materials: Material[];
   suppliers: Supplier[];
   supplierPrices: SupplierPrice[];
+  referencePrices: ReferencePrice[];
   productLines: ProductLine[];
   products: Product[];
   recipes: Recipe[];
@@ -326,6 +409,9 @@ export interface Database {
   salesOrders: SalesOrder[];
   machines: Machine[];
   machineRates: MachineRate[];
+  indirectRates: IndirectRate[];
+  ruleRates: RuleRate[];
+  quotes: Quote[];
   stageStandards: StageStandard[];
   orders: ProductionOrder[];
   stages: OrderStage[];

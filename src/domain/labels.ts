@@ -19,21 +19,18 @@ import type {
 export const roleLabels: Record<Role, string> = {
   adm: 'Administradora Principal',
   ven: 'Jefe de Ventas',
-  con: 'Responsable Contable',
-  fac: 'Encargada de Facturación',
-  rrhh: 'Encargada de RR. HH.',
   sup: 'Supervisor de Planta',
   ope: 'Operario de Producción',
 };
 
+/** Roles in the order of the closed list of W-02 (RF-03). */
+export const ROLES: Role[] = ['adm', 'ven', 'sup', 'ope'];
+
 export const roleShortLabels: Record<Role, string> = {
-  adm: 'Adm.',
+  adm: 'Administradora',
   ven: 'Ventas',
-  con: 'Cont.',
-  fac: 'Fact.',
-  rrhh: 'RR. HH.',
-  sup: 'Sup.',
-  ope: 'Oper.',
+  sup: 'Supervisor',
+  ope: 'Operario',
 };
 
 export const materialTypeLabels: Record<MaterialType, string> = {

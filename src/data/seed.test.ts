@@ -1,7 +1,7 @@
 import { unitsToWeight } from '@/domain/conversion';
 import { buildRoute, sectionOf } from '@/domain/routing';
 import type { Database, Role } from '@/domain/types';
-import { createSeed, DEMO_PASSWORD, QUICK_ACCESS_USERNAMES } from './seed';
+import { createSeed, DEMO_PASSWORD, QUICK_ACCESS_MOBILE, QUICK_ACCESS_WEB } from './seed';
 
 const NOW = new Date(2026, 10, 2, 11, 0); // 2 nov 2026, 11:00 local
 const db: Database = createSeed(NOW);
@@ -17,11 +17,23 @@ function currentPrice(materialCode: string, supplierId: string) {
 }
 
 describe('demo users', () => {
-  it('has one active quick-access user per role, all with the demo password', () => {
-    const quick = QUICK_ACCESS_USERNAMES.map((u) => db.users.find((x) => x.username === u)!);
+  it('quick-access users cover the four roles, all active with the demo password', () => {
+    const quick = [...QUICK_ACCESS_WEB, ...QUICK_ACCESS_MOBILE].map((u) => db.users.find((x) => x.username === u)!);
     expect(quick.every((u) => u.active && u.password === DEMO_PASSWORD)).toBe(true);
     const roles = new Set(quick.map((u) => u.role));
-    expect(roles).toEqual(new Set<Role>(['adm', 'ven', 'con', 'fac', 'rrhh', 'sup', 'ope']));
+    expect(roles).toEqual(new Set<Role>(['adm', 'ven', 'sup', 'ope']));
+  });
+
+  it('accounts of CLAUDE.md section 8 with the names of the captures', () => {
+    const name = (u: string) => db.users.find((x) => x.username === u)?.name;
+    expect([name('admin'), name('ventas'), name('supervisor'), name('operario1'), name('operario2')]).toEqual([
+      'Bélgica Loza',
+      'Daniel Ríos',
+      'Jorge Castillo',
+      'Luis Bravo',
+      'Pedro Alvarado',
+    ]);
+    expect(db.users.find((u) => u.username === 'operario3')?.active).toBe(false);
   });
 
   it('operators have a position for labor cost', () => {
@@ -29,7 +41,7 @@ describe('demo users', () => {
   });
 });
 
-describe('catalog matches AGENTS.md section 8', () => {
+describe('catalog matches CLAUDE.md section 8', () => {
   it('products have the specified weights and types', () => {
     expect(byCode(db.products, 'FN-2030')).toMatchObject({ weightG: 4, type: 'natural', gauge: 1.5 });
     expect(byCode(db.products, 'FI-4060')).toMatchObject({ weightG: 12.5, type: 'printed', gauge: 2 });
@@ -38,12 +50,12 @@ describe('catalog matches AGENTS.md section 8', () => {
   });
 
   it('current supplier prices', () => {
-    expect(currentPrice('PEBD', 's-polimeros').price).toBe(1.5);
-    expect(currentPrice('PEBD', 's-global')).toMatchObject({ price: 1.4, leadTimeDays: 35 });
-    expect(currentPrice('PEAD', 's-polimeros').price).toBe(1.62);
-    expect(currentPrice('PEAD', 's-global')).toMatchObject({ price: 1.45, leadTimeDays: 40 });
+    expect(currentPrice('PEBD', 's-litoral')).toMatchObject({ price: 1.58, includes: 'Transporte; IVA aparte' });
+    expect(currentPrice('PEBD', 's-andinas')).toMatchObject({ price: 1.4, leadTimeDays: 35, includes: 'Producto y flete' });
+    expect(currentPrice('PEAD', 's-litoral').price).toBe(1.62);
+    expect(currentPrice('PEAD', 's-andinas')).toMatchObject({ price: 1.45, leadTimeDays: 40 });
     expect(currentPrice('REC', 's-propio').price).toBe(0.6);
-    expect(currentPrice('PIG-N', 's-colorantes').price).toBe(3.2);
+    expect(currentPrice('PIG-N', 's-pacifico').price).toBe(3.2);
     expect(currentPrice('TINTA', 's-tintas').price).toBe(9.8);
   });
 

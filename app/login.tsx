@@ -1,36 +1,55 @@
-// P-01 Inicio de sesión (RF-01, RF-03). One entry point; the role decides web panel or mobile app.
+// P-01 Inicio de sesión (RF-01, RF-02, RF-03). One entry point; the role decides web panel or mobile app.
+// Web: brand panel + card. Phone: blue header, error banner and «Recordar usuario en este celular».
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, type Href } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/Button';
-import { Icon } from '@/components/Icon';
-import { Logo } from '@/components/Logo';
+import { Button, LinkButton } from '@/components/Button';
+import { Icon, type IconName } from '@/components/Icon';
+import { Checkbox } from '@/components/Inputs';
+import { Logo, Mark } from '@/components/Logo';
 import { TextField } from '@/components/TextField';
-import { DEMO_PASSWORD, QUICK_ACCESS_USERNAMES } from '@/data/seed';
-import { roleLabels } from '@/domain/labels';
+import { DEMO_PASSWORD, QUICK_ACCESS_MOBILE, QUICK_ACCESS_WEB } from '@/data/seed';
+import type { User } from '@/domain/types';
 import { homePath } from '@/navigation/screens';
 import { useIsWide } from '@/navigation/useIsWide';
-import { useDataStore } from '@/store/data';
-import { useSessionStore } from '@/store/session';
+import { changePassword } from '@/store/actions';
+import { LOGIN_ERROR, useSessionStore } from '@/store/session';
 import { colors, font, radius, spacing } from '@/theme';
 
-const PLATFORM_HINT: Record<string, string> = {
-  supervisor: 'Web y móvil',
-  operario1: 'Móvil · extrusión',
-  operario2: 'Móvil · sellado y empacado',
-};
+/** Only the username is kept on the phone; the password never is (RF-01). */
+const REMEMBER_KEY = 'segucost.rememberedUser';
+
+const BENEFITS: { icon: IconName; text: string }[] = [
+  { icon: 'cart', text: 'De la solicitud del cliente al pedido confirmado' },
+  { icon: 'factory', text: 'Registro de producción, tiempos y mermas' },
+  { icon: 'calculator', text: 'Costo estimado y costo real por orden' },
+];
 
 export default function LoginScreen() {
   const isWide = useIsWide();
   const insets = useSafeAreaInsets();
-  const users = useDataStore((s) => s.db.users);
   const login = useSessionStore((s) => s.login);
+  const logout = useSessionStore((s) => s.logout);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [missing, setMissing] = useState<{ username?: string; password?: string }>({});
+  // Account whose password was reset by the Administradora: asks for a new one (RF-03).
+  const [mustChange, setMustChange] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (isWide) return;
+    AsyncStorage.getItem(REMEMBER_KEY)
+      .then((saved) => saved && setUsername((u) => u || saved))
+      .catch(() => undefined);
+  }, [isWide]);
+
+  const goHome = (user: User) => router.replace(homePath(user.role, isWide) as Href);
 
   const enter = (u: string, p: string) => {
     const result = login(u, p);
@@ -39,24 +58,69 @@ export default function LoginScreen() {
       return;
     }
     setError('');
-    router.replace(homePath(result.user.role, isWide) as Href);
+    if (!isWide) {
+      (remember ? AsyncStorage.setItem(REMEMBER_KEY, result.user.username) : AsyncStorage.removeItem(REMEMBER_KEY)).catch(() => undefined);
+    }
+    if (result.user.mustChangePassword) {
+      setMustChange(result.user);
+      return;
+    }
+    goHome(result.user);
   };
 
   const submit = () => {
     const next = {
-      username: username.trim() ? undefined : 'Ingrese su usuario',
-      password: password ? undefined : 'Ingrese su contraseña',
+      username: username.trim() ? undefined : 'Ingrese su usuario.',
+      password: password ? undefined : 'Ingrese su contraseña.',
     };
     setMissing(next);
     if (next.username || next.password) return;
     enter(username, password);
   };
 
-  const quickUsers = QUICK_ACCESS_USERNAMES.map((name) => users.find((u) => u.username === name)!).filter(Boolean);
+  const quick = (isWide ? QUICK_ACCESS_WEB : QUICK_ACCESS_MOBILE) as readonly string[];
+  const quickAccess = (
+    <View style={styles.quick}>
+      <Text style={styles.quickLabel}>Prototipo · entrar como:</Text>
+      {quick.map((name) => (
+        <Pressable
+          key={name}
+          testID={`quick-${name}`}
+          accessibilityRole="button"
+          onPress={() => {
+            setUsername(name);
+            setPassword(DEMO_PASSWORD);
+            enter(name, DEMO_PASSWORD);
+          }}
+          style={(s) => [styles.chip, (s as { hovered?: boolean }).hovered && styles.chipHover]}
+        >
+          <Text style={styles.chipText}>{name}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 
-  const form = (
-    <View style={[styles.card, isWide && styles.cardWide]}>
-      <Text style={styles.title}>Iniciar sesión</Text>
+  const errorBanner = !!error && (
+    <View style={[styles.errorBanner, !isWide && styles.errorBannerLarge]} accessibilityRole="alert" testID="login-error">
+      <Icon name="alert" color={colors.alert} size={isWide ? 18 : 24} />
+      <Text style={[styles.errorText, !isWide && styles.errorTextLarge]}>{LOGIN_ERROR}. Revise e intente de nuevo.</Text>
+    </View>
+  );
+
+  const fields = mustChange ? (
+    <NewPasswordForm
+      user={mustChange}
+      large={!isWide}
+      onDone={() => goHome(mustChange)}
+      onCancel={() => {
+        logout();
+        setMustChange(null);
+        setPassword('');
+      }}
+    />
+  ) : (
+    <>
+      {errorBanner}
       <TextField
         label="Usuario"
         value={username}
@@ -79,134 +143,155 @@ export default function LoginScreen() {
           setPassword(t);
           setMissing((m) => ({ ...m, password: undefined }));
         }}
-        secureTextEntry
-        autoComplete="password"
-        error={missing.password}
+        secureTextEntry={!showPassword}
+        autoCapitalize="none"
+        autoComplete="current-password"
+        error={missing.password ?? (error ? 'Distingue mayúsculas y minúsculas.' : undefined)}
+        hint="Distingue mayúsculas y minúsculas."
         onSubmitEditing={submit}
         large={!isWide}
         testID="login-password"
       />
-      {!!error && (
-        <View style={styles.errorBox} accessibilityRole="alert">
-          <Icon name="alert" color={colors.alert} size={18} />
-          <Text style={styles.errorText}>{error}</Text>
+      {isWide ? (
+        <View style={styles.showRow}>
+          <LinkButton title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} onPress={() => setShowPassword((v) => !v)} style={styles.showLink} />
+        </View>
+      ) : (
+        <View style={styles.mobileOptions}>
+          <Checkbox label="Recordar usuario en este celular" checked={remember} onChange={setRemember} large />
+          <Checkbox label="Mostrar contraseña" checked={showPassword} onChange={setShowPassword} large />
         </View>
       )}
-      <Button title="Ingresar" onPress={submit} size={isWide ? 'md' : 'lg'} fullWidth testID="login-submit" />
-
-      <View style={styles.quick}>
-        <Text style={styles.quickTitle}>Accesos rápidos de demostración</Text>
-        <Text style={styles.quickHint}>Contraseña de todos los usuarios: {DEMO_PASSWORD}</Text>
-        <View style={styles.quickGrid}>
-          {quickUsers.map((u) => (
-            <Pressable
-              key={u.id}
-              testID={`quick-${u.username}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Ingresar como ${u.name}, ${roleLabels[u.role]}`}
-              onPress={() => enter(u.username, DEMO_PASSWORD)}
-              style={({ pressed }) => [styles.quickItem, isWide && styles.quickItemWide, pressed && styles.quickPressed]}
-            >
-              <View style={styles.quickBody}>
-                <Text style={[styles.quickRole, !isWide && styles.quickNarrowText]}>{roleLabels[u.role]}</Text>
-                <Text style={[styles.quickUser, !isWide && styles.quickNarrowText]}>
-                  {u.username} · {PLATFORM_HINT[u.username] ?? 'Web'}
-                </Text>
-              </View>
-              <Icon name="chevronRight" color={colors.primary} size={18} />
-            </Pressable>
-          ))}
-        </View>
-      </View>
-    </View>
+      <Button title="Ingresar" onPress={submit} fullWidth size={isWide ? 'md' : 'lg'} testID="login-submit" />
+      <Text style={[styles.footnote, !isWide && styles.footnoteLarge]}>
+        {isWide ? '¿Olvidó su contraseña? Pida a la Administradora que la restablezca.' : '¿Olvidó su contraseña? Avise a su supervisor.'}
+      </Text>
+    </>
   );
 
   if (isWide) {
     return (
       <View style={styles.wide}>
         <View style={styles.brand}>
-          <Logo inverted size={52} />
-          <View style={styles.brandText}>
-            <Text style={styles.brandHeadline}>Costeo y control de producción</Text>
-            <Text style={styles.brandBody}>
-              Del pedido a la orden de producción, el registro en planta, el costo real de cada orden y el precio
-              referencial aprobado, en un solo sistema.
-            </Text>
+          <View style={styles.brandInner}>
+            <Logo inverted size={52} subtitle="SEGUPLAST S.A. · Guayaquil" />
+            <Text style={styles.headline}>Pedidos, producción y costos de fundas plásticas en un solo lugar</Text>
+            <View style={styles.benefits}>
+              {BENEFITS.map((b) => (
+                <View key={b.text} style={styles.benefit}>
+                  <View style={styles.benefitIcon}>
+                    <Icon name={b.icon} color={colors.gold} size={18} />
+                  </View>
+                  <Text style={styles.benefitText}>{b.text}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <Text style={styles.brandFoot}>Prototipo con datos simulados · Equipo T4 · ESPOL</Text>
         </View>
         <ScrollView style={styles.formSide} contentContainerStyle={styles.formSideContent}>
-          {form}
+          <View style={styles.card}>
+            <View style={styles.cardTitles}>
+              <Text style={styles.title}>{mustChange ? 'Cree una contraseña nueva' : 'Iniciar sesión'}</Text>
+              <Text style={styles.subtitle}>
+                {mustChange ? 'La Administradora restableció su contraseña.' : 'Use el usuario que le entregó la Administradora.'}
+              </Text>
+            </View>
+            {fields}
+          </View>
+          {!mustChange && quickAccess}
         </ScrollView>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.narrow} contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}>
-      <View style={[styles.narrowHeader, { paddingTop: insets.top + spacing.xl }]}>
-        <Logo inverted size={44} />
-        <Text style={styles.narrowTagline}>Costeo y control de producción</Text>
-      </View>
-      {form}
-    </ScrollView>
+    <KeyboardAvoidingView style={styles.mobile} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }} keyboardShouldPersistTaps="handled">
+        <View style={[styles.mobileHeader, { paddingTop: insets.top + 48 }]}>
+          <Mark size={52} />
+          <Text style={styles.mobileTitle}>SeguCost</Text>
+          <Text style={styles.mobileSubtitle}>Registro de producción en planta</Text>
+        </View>
+        <View style={styles.mobileBody}>
+          {mustChange && <Text style={styles.mobileStepTitle}>Cree una contraseña nueva</Text>}
+          {fields}
+          {!mustChange && quickAccess}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+/** First login after a reset: new password twice (RF-03). */
+function NewPasswordForm({ user, large, onDone, onCancel }: { user: User; large: boolean; onDone: () => void; onCancel: () => void }) {
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const save = () => {
+    const result = changePassword(user.id, pwd, confirm);
+    if (!result.ok) {
+      setErrors(result.errors);
+      return;
+    }
+    onDone();
+  };
+  return (
+    <>
+      <TextField label="Contraseña nueva" value={pwd} onChangeText={setPwd} secureTextEntry error={errors.password} hint="Al menos 6 caracteres." large={large} testID="new-password" />
+      <TextField label="Repita la contraseña" value={confirm} onChangeText={setConfirm} secureTextEntry error={errors.confirm} large={large} onSubmitEditing={save} testID="new-password-confirm" />
+      <Button title="Guardar y entrar" onPress={save} fullWidth size={large ? 'lg' : 'md'} />
+      <Button title="Cancelar" variant="secondary" onPress={onCancel} fullWidth size={large ? 'lg' : 'md'} />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  wide: { flex: 1, flexDirection: 'row', backgroundColor: colors.background },
-  brand: { flex: 1, backgroundColor: colors.primary, padding: 56, justifyContent: 'space-between' },
-  brandText: { gap: spacing.lg, maxWidth: 520 },
-  brandHeadline: { color: colors.onPrimary, fontSize: 40, fontWeight: font.weight.bold, lineHeight: 48 },
-  brandBody: { color: '#D5DEEA', fontSize: font.size.lg, lineHeight: 28 },
-  brandFoot: { color: '#B9C6D8', fontSize: font.size.sm },
+  wide: { flex: 1, flexDirection: 'row', backgroundColor: colors.page },
+  brand: { width: '41.7%', backgroundColor: colors.primary, justifyContent: 'center', paddingHorizontal: 72 },
+  brandInner: { gap: 36, maxWidth: 460 },
+  headline: { color: colors.onPrimary, fontSize: 32, lineHeight: 40, fontWeight: font.weight.bold, marginTop: 2 },
+  benefits: { gap: 16, marginTop: 14 },
+  benefit: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  benefitIcon: { width: 36, height: 36, borderRadius: 6, backgroundColor: colors.selected, alignItems: 'center', justifyContent: 'center' },
+  benefitText: { color: '#D6DEE8', fontSize: 15 },
   formSide: { flex: 1 },
-  formSideContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xxl },
-
-  narrow: { flex: 1, backgroundColor: colors.surface },
-  narrowHeader: { backgroundColor: colors.primary, paddingHorizontal: spacing.xl, paddingBottom: 56, gap: spacing.sm },
-  narrowTagline: { color: '#D5DEEA', fontSize: font.size.md },
-
+  formSideContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl, gap: spacing.xl },
   card: {
+    width: '100%',
+    maxWidth: 440,
     backgroundColor: colors.background,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    gap: spacing.lg,
-    marginHorizontal: spacing.lg,
-    marginTop: -40,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: 36,
+    paddingVertical: 36,
+    gap: 18,
+    shadowColor: '#0B1F3A',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
   },
-  cardWide: { width: 460, marginHorizontal: 0, marginTop: 0, borderWidth: 0, padding: 0 },
-  title: { fontSize: font.size.xxl, fontWeight: font.weight.bold, color: colors.primary },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.alertBg,
-    borderRadius: radius.sm,
-    padding: spacing.md,
-  },
-  errorText: { color: colors.alert, fontSize: font.size.md, fontWeight: font.weight.medium },
-
-  quick: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.lg },
-  quickTitle: { fontSize: font.size.md, fontWeight: font.weight.bold, color: colors.text },
-  quickHint: { fontSize: font.size.sm, color: colors.textMuted },
-  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  quickItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 56,
-    width: '100%',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  quickItemWide: { width: '48.5%' },
-  quickPressed: { backgroundColor: colors.border },
-  quickBody: { flex: 1, gap: 2 },
-  quickRole: { fontSize: font.size.sm, fontWeight: font.weight.bold, color: colors.primary },
-  quickUser: { fontSize: 13, color: colors.textMuted },
-  quickNarrowText: { fontSize: font.size.md },
+  cardTitles: { gap: 4, marginBottom: 2 },
+  title: { fontSize: 26, fontWeight: font.weight.bold, color: colors.text },
+  subtitle: { fontSize: 14, color: colors.textMuted },
+  showRow: { alignItems: 'flex-end', marginTop: -6 },
+  showLink: { fontSize: 13, fontWeight: font.weight.medium },
+  footnote: { fontSize: 13, color: colors.textMuted, lineHeight: 17 },
+  footnoteLarge: { fontSize: 16, textAlign: 'center', lineHeight: 22 },
+  quick: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm },
+  quickLabel: { fontSize: 12, color: colors.textMuted },
+  chip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background },
+  chipHover: { borderColor: colors.primary },
+  chipText: { fontSize: 12, fontWeight: font.weight.semibold, color: colors.primary },
+  errorBanner: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.alertBg, borderRadius: radius.md, padding: spacing.md },
+  errorBannerLarge: { paddingHorizontal: 18, paddingVertical: 18, borderRadius: 12, gap: 18 },
+  errorText: { flex: 1, fontSize: 14, color: colors.text, lineHeight: 20 },
+  errorTextLarge: { fontSize: 16, lineHeight: 22 },
+  mobile: { flex: 1, backgroundColor: colors.page },
+  mobileHeader: { backgroundColor: colors.primary, paddingHorizontal: 24, paddingBottom: 32, gap: 14 },
+  mobileTitle: { color: colors.onPrimary, fontSize: 30, fontWeight: font.weight.bold, marginTop: 4 },
+  mobileSubtitle: { color: '#C9D3E0', fontSize: 17 },
+  mobileBody: { paddingHorizontal: 20, paddingTop: 24, gap: 20 },
+  mobileStepTitle: { fontSize: 20, fontWeight: font.weight.bold, color: colors.text },
+  mobileOptions: { gap: spacing.sm },
 });

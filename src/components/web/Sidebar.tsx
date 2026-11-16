@@ -1,111 +1,107 @@
-// Web sidebar filtered by role (RF-03, RI-01).
+// Web sidebar filtered by role and grouped by process (RF-04, RI-01), as in the Figma design.
 import { router, usePathname, type Href } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Icon, type IconName } from '@/components/Icon';
 import { Logo } from '@/components/Logo';
+import { showToast } from '@/components/Toast';
 import type { Role } from '@/domain/types';
-import { menuFor, menuGroups, type ScreenId } from '@/navigation/screens';
-import { useDataStore } from '@/store/data';
-import { colors, font, radius, spacing } from '@/theme';
+import { menuFor, menuGroups, menuPath, screenForPath, type ScreenDef } from '@/navigation/screens';
+import { colors, font, layout, radius, spacing } from '@/theme';
 
 /** react-native-web adds `hovered` to the Pressable state; the RN types do not declare it. */
 const isHovered = (state: object) => (state as { hovered?: boolean }).hovered === true;
 
-/** Pending items shown as a badge next to the menu entry. */
-function usePendingCounts(): Partial<Record<ScreenId, number>> {
-  const db = useDataStore((s) => s.db);
-  return {
-    'W-06': db.recipes.filter((r) => r.status === 'draft').length,
-    'W-17': db.priceProposals.filter((p) => p.status === 'proposed').length,
-  };
+function Item({ icon, label, active, onPress, testID }: { icon: IconName; label: string; active?: boolean; onPress: () => void; testID?: string }) {
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="link"
+      accessibilityState={{ selected: !!active }}
+      onPress={onPress}
+      style={(state) => [styles.item, isHovered(state) && !active && styles.itemHover, active && styles.itemActive]}
+    >
+      <Icon name={icon} size={18} color={active ? colors.gold : colors.onPrimary} />
+      <Text style={[styles.itemText, active && styles.itemTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
-export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => void }) {
+export function Sidebar({ role, onNavigate, onLogout }: { role: Role; onNavigate?: () => void; onLogout: () => void }) {
   const pathname = usePathname();
   const items = menuFor(role);
-  const counts = usePendingCounts();
+  const current = screenForPath(pathname);
+  // Detail screens (W-13) light up their parent entry (W-12).
+  const activeId = current?.parent ?? current?.id;
 
-  const go = (path: string) => {
+  const go = (s: ScreenDef) => {
     onNavigate?.();
-    router.push(path as Href);
+    router.push(menuPath(s) as Href);
   };
+  const home = items.find((i) => i.id === 'W-01');
 
   return (
     <View style={styles.container}>
       <View style={styles.logo}>
-        <Logo inverted size={36} />
+        <Logo inverted />
       </View>
       <ScrollView contentContainerStyle={styles.menu}>
+        {home && <Item icon="home" label={home.title} active={activeId === home.id} onPress={() => go(home)} testID="menu-W-01" />}
         {menuGroups.map((group) => {
-          const groupItems = items.filter((i) => i.menu === group);
+          const groupItems = items.filter((i) => i.group === group);
           if (!groupItems.length) return null;
           return (
             <View key={group} style={styles.group}>
               <Text style={styles.groupTitle}>{group}</Text>
-              {groupItems.map((item) => {
-                const active = pathname === item.path;
-                const count = counts[item.id];
-                return (
-                  <Pressable
-                    key={item.id}
-                    testID={`menu-${item.id}`}
-                    accessibilityRole="link"
-                    accessibilityState={{ selected: active }}
-                    onPress={() => go(item.path)}
-                    style={(state) => [styles.item, (isHovered(state) || state.pressed) && styles.itemHover, active && styles.itemActive]}
-                  >
-                    <Text style={[styles.itemText, active && styles.itemTextActive]} numberOfLines={1}>
-                      {item.menuLabel ?? item.title}
-                    </Text>
-                    {!!count && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{count}</Text>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              })}
+              {groupItems.map((item) => (
+                <Item
+                  key={item.id}
+                  icon={item.icon ?? 'file'}
+                  label={item.menuLabel ?? item.title}
+                  active={activeId === item.id}
+                  onPress={() => go(item)}
+                  testID={`menu-${item.id}`}
+                />
+              ))}
             </View>
           );
         })}
-        {role === 'sup' && (
-          <View style={styles.group}>
-            <Text style={styles.groupTitle}>Planta</Text>
-            <Pressable onPress={() => go('/m/planta')} style={(state) => [styles.item, isHovered(state) && styles.itemHover]} accessibilityRole="link">
-              <Text style={styles.itemText}>Abrir app móvil de planta</Text>
-            </Pressable>
-          </View>
-        )}
       </ScrollView>
+      <View style={styles.footer}>
+        <Item icon="help" label="Ayuda" onPress={() => showToast('info', 'Ayuda: cada pantalla muestra junto al campo cómo corregir un error. Para dudas de acceso, consulte a la Administradora.', 6000)} />
+        <Item icon="logout" label="Cerrar sesión" onPress={onLogout} testID="logout" />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.primary },
-  logo: { paddingHorizontal: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.lg },
-  menu: { paddingHorizontal: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
-  group: { gap: 2 },
+  container: { width: layout.sidebarWidth, height: '100%', flexShrink: 0, backgroundColor: colors.primary },
+  logo: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 14 },
+  menu: { paddingHorizontal: 12, paddingBottom: spacing.lg, gap: 2 },
+  group: { gap: 2, marginTop: spacing.md },
   groupTitle: {
-    color: '#A9B8CC',
-    fontSize: 12,
-    fontWeight: font.weight.bold,
-    letterSpacing: 0.8,
+    color: colors.sidebarMuted,
+    fontSize: 11,
+    fontWeight: font.weight.semibold,
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: 10,
+    paddingBottom: 2,
   },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
+    gap: 10,
+    height: 33,
+    paddingHorizontal: 10,
     borderRadius: radius.sm,
   },
   itemHover: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  itemActive: { backgroundColor: colors.onPrimary },
-  itemText: { flex: 1, color: colors.onPrimary, fontSize: font.size.sm + 1 },
-  itemTextActive: { color: colors.primary, fontWeight: font.weight.bold },
-  badge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: '#F2B705', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  badgeText: { color: colors.primary, fontSize: 12, fontWeight: font.weight.bold },
+  itemActive: { backgroundColor: colors.selected },
+  itemText: { flex: 1, color: colors.onPrimary, fontSize: 14, letterSpacing: -0.15 },
+  itemTextActive: { fontWeight: font.weight.semibold },
+  footer: { paddingHorizontal: 14, paddingVertical: spacing.lg, gap: 2 },
 });

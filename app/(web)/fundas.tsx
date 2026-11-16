@@ -27,7 +27,7 @@ const num = (n: number) => formatNumber(n, n % 1 ? 1 : 0);
 export default function ProductsScreen() {
   const user = useCurrentUser()!;
   const db = useDataStore((s) => s.db);
-  const canEdit = can(user.role, 'catalog', 'full');
+  const canEdit = can(user.role, 'productSheets', 'full');
   const [form, setForm] = useState<Form>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));

@@ -61,7 +61,7 @@ export function computeOrderCost(db: Database, orderId: string, at: string): Ord
   if (!isService) {
     const rawKg = db.productionRecords.filter((r) => stageIds.has(r.stageId)).reduce((t, r) => t + (r.rawMaterialKg ?? 0), 0);
     for (const item of recipe.items) {
-      addLine(lines, 'material', item.materialId, rawKg * item.qtyPerKg, referencePrice(db.supplierPrices, db.suppliers, item.materialId, at));
+      addLine(lines, 'material', item.materialId, rawKg * item.qtyPerKg, referencePrice(db.supplierPrices, db.suppliers, item.materialId, at, db.referencePrices));
     }
   }
 
@@ -121,7 +121,7 @@ export function standardCost(db: Database, productId: string, at: string, overri
   const product = db.products.find((p) => p.id === productId)!;
   const recipe = currentRecipe(db, productId);
   const price = (materialId: string) =>
-    override?.materialId === materialId ? override.price : referencePrice(db.supplierPrices, db.suppliers, materialId, at);
+    override?.materialId === materialId ? override.price : referencePrice(db.supplierPrices, db.suppliers, materialId, at, db.referencePrices);
   const materialPerKg = recipe ? recipe.items.reduce((t, i) => t + i.qtyPerKg * price(i.materialId), 0) : 0;
 
   let conversionPerKg = 0;

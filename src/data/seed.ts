@@ -1,4 +1,4 @@
-// Demo data for the prototype (AGENTS.md section 8). All names are fictitious.
+// Demo data (CLAUDE.md section 8). All names are fictitious.
 // Dates are generated relative to `now` so the demo always shows a running shift,
 // a recent history and the last 6 months of trends.
 import { unitsToWeight } from '@/domain/conversion';
@@ -17,6 +17,7 @@ import type {
   PositionRate,
   PriceProposal,
   ProductionOrder,
+  Quote,
   ProductionRecord,
   SalesOrder,
   StageStatus,
@@ -29,17 +30,9 @@ import type {
 
 export const DEMO_PASSWORD = 'demo123';
 
-/** Users shown as quick access in P-01, one per role (plus the second operator). */
-export const QUICK_ACCESS_USERNAMES = [
-  'admin',
-  'ventas',
-  'contabilidad',
-  'facturacion',
-  'rrhh',
-  'supervisor',
-  'operario1',
-  'operario2',
-] as const;
+/** Prototype quick access in P-01: office roles on the web, operators on the phone. */
+export const QUICK_ACCESS_WEB = ['admin', 'ventas', 'supervisor'] as const;
+export const QUICK_ACCESS_MOBILE = ['operario1', 'operario2', 'supervisor'] as const;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const seq4 = (n: number) => String(n).padStart(4, '0');
@@ -75,89 +68,94 @@ export function createSeed(now: Date = new Date()): Database {
   const SIX_MONTHS = [-5, -4, -3, -2, -1, 0];
 
   // ---- users and positions ----
-  const shift = 'Turno mañana (06:00 – 14:00)';
+  const shift = 'Turno 07:00–15:00';
+  const created = monthStart(-8);
   const users: Database['users'] = [
-    { id: 'u-admin', name: 'Andrea Ejemplo', username: 'admin', password: DEMO_PASSWORD, role: 'adm', active: true },
-    { id: 'u-ventas', name: 'Carlos Muestra', username: 'ventas', password: DEMO_PASSWORD, role: 'ven', active: true },
-    { id: 'u-contabilidad', name: 'Diego Prueba', username: 'contabilidad', password: DEMO_PASSWORD, role: 'con', active: true },
-    { id: 'u-facturacion', name: 'Elena Ficticia', username: 'facturacion', password: DEMO_PASSWORD, role: 'fac', active: true },
-    { id: 'u-rrhh', name: 'Fabiola Ensayo', username: 'rrhh', password: DEMO_PASSWORD, role: 'rrhh', active: true },
-    { id: 'u-supervisor', name: 'Gustavo Simulado', username: 'supervisor', password: DEMO_PASSWORD, role: 'sup', active: true, shift },
-    { id: 'u-op1', name: 'Hugo Ejemplar', username: 'operario1', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-ext', shift },
-    { id: 'u-op2', name: 'Iván Modelo', username: 'operario2', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-sel', shift },
-    { id: 'u-op3', name: 'Jorge Prototipo', username: 'operario3', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-imp', shift },
-    { id: 'u-op4', name: 'Kevin Ficticio', username: 'operario4', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-sel', shift },
-    { id: 'u-op5', name: 'Luis Antiguo', username: 'operario5', password: DEMO_PASSWORD, role: 'ope', active: false, positionId: 'pos-emp' },
+    { id: 'u-admin', name: 'Bélgica Loza', username: 'admin', password: DEMO_PASSWORD, role: 'adm', active: true, createdAt: created },
+    { id: 'u-ventas', name: 'Daniel Ríos', username: 'ventas', password: DEMO_PASSWORD, role: 'ven', active: true, createdAt: created },
+    { id: 'u-supervisor', name: 'Jorge Castillo', username: 'supervisor', password: DEMO_PASSWORD, role: 'sup', active: true, shift, createdAt: created },
+    { id: 'u-op1', name: 'Luis Bravo', username: 'operario1', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-ext', shift, createdAt: created },
+    { id: 'u-op2', name: 'Pedro Alvarado', username: 'operario2', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-sel', shift, createdAt: created },
+    { id: 'u-op3', name: 'Carlos Vera', username: 'operario3', password: DEMO_PASSWORD, role: 'ope', active: false, positionId: 'pos-ext', shift, createdAt: created },
+    { id: 'u-op4', name: 'Ana Ruiz', username: 'aruiz', password: DEMO_PASSWORD, role: 'ope', active: true, positionId: 'pos-imp', shift, createdAt: created },
   ];
 
   const positions: Database['positions'] = [
-    { id: 'pos-ext', name: 'Operador de extrusión' },
-    { id: 'pos-imp', name: 'Operador de impresión' },
-    { id: 'pos-sel', name: 'Operador de sellado y troquelado' },
-    { id: 'pos-emp', name: 'Empacador' },
+    { id: 'pos-ext', name: 'Operario de extrusión' },
+    { id: 'pos-imp', name: 'Operario de impresión' },
+    { id: 'pos-sel', name: 'Operario de sellado' },
+    { id: 'pos-emp', name: 'Operario de empacado' },
   ];
 
-  // [positionId, previous rate, current rate]; current in force since 2 months ago.
-  const positionRateRows: [string, number, number][] = [
-    ['pos-ext', 3.1, 3.25],
-    ['pos-imp', 3.25, 3.4],
-    ['pos-sel', 2.9, 3.0],
-    ['pos-emp', 2.7, 2.8],
+  // [positionId, rate in force since March, current rate, month of the current rate].
+  // Extrusion went from 2,95 to 3,10 USD/h this month (W-14, W-21).
+  const positionRateRows: [string, number, number, number][] = [
+    ['pos-ext', 2.95, 3.1, 0],
+    ['pos-imp', 3.1, 3.25, -8],
+    ['pos-sel', 2.8, 2.95, -8],
+    ['pos-emp', 2.65, 2.8, -8],
   ];
-  const positionRates: PositionRate[] = positionRateRows.flatMap(([positionId, prev, curr]) => [
-    { id: `pr-${positionId}-1`, positionId, hourlyCost: prev, validFrom: monthStart(-10), createdBy: 'u-rrhh' },
-    { id: `pr-${positionId}-2`, positionId, hourlyCost: curr, validFrom: monthStart(-2), createdBy: 'u-rrhh' },
+  const positionRates: PositionRate[] = positionRateRows.flatMap(([positionId, prev, curr, since]) => [
+    { id: `pr-${positionId}-1`, positionId, hourlyCost: prev, validFrom: monthStart(since === 0 ? -8 : -20), createdBy: 'u-admin' },
+    { id: `pr-${positionId}-2`, positionId, hourlyCost: curr, validFrom: monthStart(since), createdBy: 'u-admin' },
   ]);
 
   // ---- materials, suppliers and prices ----
+  // ADT-02 (aditivo deslizante) is not here: it arrives with the initial CSV import of flow 1.
   const materials: Database['materials'] = [
-    { id: 'm-pebd', code: 'PEBD', name: 'Polietileno de baja densidad (pepitas)', type: 'resin', unit: 'kg', active: true },
-    { id: 'm-pead', code: 'PEAD', name: 'Polietileno de alta densidad (pepitas)', type: 'resin', unit: 'kg', active: true },
-    { id: 'm-rec', code: 'REC', name: 'Material reciclado peletizado', type: 'recycled', unit: 'kg', active: true },
-    { id: 'm-pign', code: 'PIG-N', name: 'Pigmento negro (masterbatch)', type: 'pigment', unit: 'kg', active: true },
+    { id: 'm-pebd', code: 'PEBD', name: 'Polietileno baja densidad', type: 'resin', unit: 'kg', active: true },
+    { id: 'm-pead', code: 'PEAD', name: 'Polietileno alta densidad', type: 'resin', unit: 'kg', active: true },
+    { id: 'm-rec', code: 'REC', name: 'Reciclado peletizado', type: 'recycled', unit: 'kg', active: true },
+    { id: 'm-pign', code: 'PIG-N', name: 'Pigmento negro', type: 'pigment', unit: 'kg', active: true },
     { id: 'm-tinta', code: 'TINTA', name: 'Tinta flexográfica', type: 'ink', unit: 'l', active: true },
-    { id: 'm-adt', code: 'ADT-D', name: 'Aditivo deslizante', type: 'additive', unit: 'kg', active: false },
   ];
 
   const suppliers: Database['suppliers'] = [
-    { id: 's-polimeros', name: 'Polímeros Demo S.A.', origin: 'local' },
-    { id: 's-resinas', name: 'Resinas Ejemplo Cía. Ltda.', origin: 'local' },
-    { id: 's-global', name: 'Global Polymers Demo Inc.', origin: 'imported' },
+    { id: 's-litoral', name: 'Plásticos del Litoral', origin: 'local', contact: 'ventas@litoral.example' },
+    { id: 's-gye', name: 'Distribuidora Polímeros GYE', origin: 'local', contact: '04-000-0000' },
+    { id: 's-andinas', name: 'Resinas Andinas Import.', origin: 'imported', contact: 'import@andinas.example' },
+    { id: 's-global', name: 'Global Resins (demo)', origin: 'imported', contact: 'sales@global.example' },
     { id: 's-propio', name: 'Planta SEGUPLAST (reciclado propio)', origin: 'own' },
-    { id: 's-colorantes', name: 'Colorantes Prueba S.A.', origin: 'local' },
-    { id: 's-tintas', name: 'Tintas Muestra S.A.', origin: 'local' },
+    { id: 's-pacifico', name: 'Colorantes del Pacífico', origin: 'local' },
+    { id: 's-tintas', name: 'Tintas Flexo Guayaquil', origin: 'local' },
   ];
 
-  // Monthly price series, oldest first; the last value is the price in force this month.
-  const priceSeries: { materialId: string; supplierId: string; leadTimeDays?: number; prices: number[] }[] = [
-    { materialId: 'm-pebd', supplierId: 's-polimeros', prices: [1.38, 1.41, 1.44, 1.46, 1.48, 1.5] },
-    { materialId: 'm-pebd', supplierId: 's-resinas', prices: [1.45, 1.47, 1.5, 1.52, 1.54, 1.55] },
-    { materialId: 'm-pebd', supplierId: 's-global', leadTimeDays: 35, prices: [1.29, 1.31, 1.34, 1.36, 1.38, 1.4] },
-    { materialId: 'm-pead', supplierId: 's-polimeros', prices: [1.52, 1.54, 1.57, 1.59, 1.6, 1.62] },
-    { materialId: 'm-pead', supplierId: 's-global', leadTimeDays: 40, prices: [1.38, 1.39, 1.41, 1.42, 1.44, 1.45] },
-    { materialId: 'm-rec', supplierId: 's-propio', prices: [0.58, 0.58, 0.59, 0.59, 0.6, 0.6] },
-    { materialId: 'm-pign', supplierId: 's-colorantes', prices: [3.05, 3.05, 3.1, 3.1, 3.15, 3.2] },
-    { materialId: 'm-tinta', supplierId: 's-tintas', prices: [9.4, 9.4, 9.55, 9.6, 9.7, 9.8] },
+  // Monthly price series, oldest first. The last value of Plásticos del Litoral (PEBD 1,58) was
+  // registered yesterday from a purchase invoice; the rest are in force since the first of each month.
+  const LOCAL = 'Transporte; IVA aparte';
+  const IMPORTED = 'Producto y flete';
+  const priceSeries: { materialId: string; supplierId: string; leadTimeDays: number; includes: string; prices: number[]; lastFrom?: string }[] = [
+    { materialId: 'm-pebd', supplierId: 's-litoral', leadTimeDays: 2, includes: LOCAL, prices: [1.46, 1.48, 1.47, 1.5, 1.5, 1.58], lastFrom: day(-1) },
+    { materialId: 'm-pebd', supplierId: 's-gye', leadTimeDays: 1, includes: LOCAL, prices: [1.5, 1.52, 1.52, 1.55, 1.57, 1.61] },
+    { materialId: 'm-pebd', supplierId: 's-andinas', leadTimeDays: 35, includes: IMPORTED, prices: [1.36, 1.37, 1.4, 1.39, 1.39, 1.4] },
+    { materialId: 'm-pebd', supplierId: 's-global', leadTimeDays: 45, includes: IMPORTED, prices: [1.42, 1.42, 1.43, 1.43, 1.44, 1.44] },
+    { materialId: 'm-pead', supplierId: 's-litoral', leadTimeDays: 2, includes: LOCAL, prices: [1.55, 1.56, 1.58, 1.6, 1.6, 1.62] },
+    { materialId: 'm-pead', supplierId: 's-andinas', leadTimeDays: 40, includes: IMPORTED, prices: [1.4, 1.41, 1.43, 1.44, 1.44, 1.45] },
+    { materialId: 'm-rec', supplierId: 's-propio', leadTimeDays: 0, includes: 'Material propio peletizado', prices: [0.58, 0.58, 0.59, 0.59, 0.6, 0.6] },
+    { materialId: 'm-pign', supplierId: 's-pacifico', leadTimeDays: 3, includes: LOCAL, prices: [3.05, 3.05, 3.1, 3.1, 3.15, 3.2] },
+    { materialId: 'm-tinta', supplierId: 's-tintas', leadTimeDays: 2, includes: LOCAL, prices: [9.4, 9.4, 9.55, 9.6, 9.7, 9.8] },
   ];
-  const supplierPrices: SupplierPrice[] = priceSeries.flatMap(({ materialId, supplierId, leadTimeDays, prices }) =>
+  const supplierPrices: SupplierPrice[] = priceSeries.flatMap(({ materialId, supplierId, leadTimeDays, includes, prices, lastFrom }) =>
     prices.map((price, i) => ({
       id: `sp-${materialId.slice(2)}-${supplierId.slice(2)}-${i + 1}`,
       materialId,
       supplierId,
       price,
       leadTimeDays,
-      validFrom: monthStart(SIX_MONTHS[i]),
-      createdBy: 'u-contabilidad',
+      includes,
+      validFrom: i === prices.length - 1 && lastFrom ? lastFrom : monthStart(SIX_MONTHS[i]),
+      createdBy: 'u-admin',
     })),
   );
-  supplierPrices.push({
-    id: 'sp-adt-colorantes-1',
-    materialId: 'm-adt',
-    supplierId: 's-colorantes',
-    price: 4.5,
-    validFrom: monthStart(-8),
-    createdBy: 'u-contabilidad',
-  });
+
+  // Reference supplier per material, used by the estimates (RF-44).
+  const referencePrices: Database['referencePrices'] = [
+    { id: 'ref-pebd', materialId: 'm-pebd', supplierId: 's-litoral', since: monthStart(-8), setBy: 'u-admin' },
+    { id: 'ref-pead', materialId: 'm-pead', supplierId: 's-litoral', since: monthStart(-8), setBy: 'u-admin' },
+    { id: 'ref-rec', materialId: 'm-rec', supplierId: 's-propio', since: monthStart(-8), setBy: 'u-admin' },
+    { id: 'ref-pign', materialId: 'm-pign', supplierId: 's-pacifico', since: monthStart(-8), setBy: 'u-admin' },
+    { id: 'ref-tinta', materialId: 'm-tinta', supplierId: 's-tintas', since: monthStart(-8), setBy: 'u-admin' },
+  ];
 
   // ---- product lines, products and recipes ----
   const productLines: Database['productLines'] = [
@@ -246,16 +244,17 @@ export function createSeed(now: Date = new Date()): Database {
   const salesOrderById = Object.fromEntries(salesOrders.map((s) => [s.id, s]));
 
   // ---- machines and rates ----
+  // Standard throughput in kg/h estimates the hours of each stage (RF-25).
   const machines: Database['machines'] = [
-    { id: 'mc-ext01', code: 'EXT-01', section: 'extrusion', active: true },
-    { id: 'mc-ext02', code: 'EXT-02', section: 'extrusion', active: true },
-    { id: 'mc-imp01', code: 'IMP-01', section: 'printing', active: true },
-    { id: 'mc-sel01', code: 'SEL-01', section: 'sealing', active: true },
-    { id: 'mc-sel02', code: 'SEL-02', section: 'sealing', active: true },
-    { id: 'mc-trq01', code: 'TRQ-01', section: 'dieCutting', active: true },
+    { id: 'mc-ext01', code: 'EXT-01', section: 'extrusion', active: true, kgPerHour: 25 },
+    { id: 'mc-ext02', code: 'EXT-02', section: 'extrusion', active: true, kgPerHour: 25 },
+    { id: 'mc-imp01', code: 'IMP-01', section: 'printing', active: true, kgPerHour: 40 },
+    { id: 'mc-sel01', code: 'SEL-01', section: 'sealing', active: true, kgPerHour: 20 },
+    { id: 'mc-sel02', code: 'SEL-02', section: 'sealing', active: true, kgPerHour: 20 },
+    { id: 'mc-trq01', code: 'TRQ-01', section: 'dieCutting', active: true, kgPerHour: 30 },
   ];
 
-  // [machineId, previous rate, current rate]; current in force since 3 months ago.
+  // [machineId, previous rate, current rate]; current in force since March.
   const machineRateRows: [string, number, number][] = [
     ['mc-ext01', 8.0, 8.5],
     ['mc-ext02', 8.0, 8.5],
@@ -265,9 +264,21 @@ export function createSeed(now: Date = new Date()): Database {
     ['mc-trq01', 3.8, 4.0],
   ];
   const machineRates: MachineRate[] = machineRateRows.flatMap(([machineId, prev, curr]) => [
-    { id: `mr-${machineId}-1`, machineId, hourlyCost: prev, validFrom: monthStart(-12), createdBy: 'u-admin' },
-    { id: `mr-${machineId}-2`, machineId, hourlyCost: curr, validFrom: monthStart(-3), createdBy: 'u-admin' },
+    { id: `mr-${machineId}-1`, machineId, hourlyCost: prev, validFrom: monthStart(-20), createdBy: 'u-admin' },
+    { id: `mr-${machineId}-2`, machineId, hourlyCost: curr, validFrom: monthStart(-8), createdBy: 'u-admin' },
   ]);
+
+  // Utilities and plant expenses per productive hour; no salaries or payroll data (RF-41).
+  const indirectRates: Database['indirectRates'] = [
+    { id: 'ind-1', hourlyCost: 2.25, validFrom: monthStart(-20), createdBy: 'u-admin' },
+    { id: 'ind-2', hourlyCost: 2.4, validFrom: monthStart(-8), createdBy: 'u-admin' },
+  ];
+
+  const ruleRates: Database['ruleRates'] = [
+    { id: 'rule-margin-1', key: 'minMargin', value: 0.2, validFrom: monthStart(-8), createdBy: 'u-admin' },
+    { id: 'rule-waste-1', key: 'maxWastePct', value: 0.03, validFrom: monthStart(-8), createdBy: 'u-admin' },
+    { id: 'rule-balance-1', key: 'balanceTolerance', value: 0.005, validFrom: monthStart(-8), createdBy: 'u-admin' },
+  ];
 
   const stageStandards: Database['stageStandards'] = [
     { stage: 'extrusion', kgPerHour: 25, positionId: 'pos-ext' },
@@ -450,22 +461,59 @@ export function createSeed(now: Date = new Date()): Database {
     proposal('pp-08', 'p-fv1520', 0.0146, 0.3, at(-2, 15), 'proposed', undefined, { quantity: 30_000 }),
   ];
 
-  // ---- monthly history for trend charts (W-01, W-20) ----
+  // ---- quotes (flow 3). COT-0102 has its FN-2030 line at 15 % waiting for authorization (W-01, W-09). ----
+  const quotes: Quote[] = [
+    {
+      id: 'cot-0102', code: 'COT-0102', customerId: 'c-comercial', revision: 1, status: 'pendingAuthorization',
+      lines: [
+        { id: 'cot-0102-1', productId: 'p-fi4060', quantity: 10_000, materials: 205.28, transformation: 166.15, marginPct: 0.25 },
+        { id: 'cot-0102-2', productId: 'p-fn2030', quantity: 50_000, materials: 296.4, transformation: 220.75, marginPct: 0.15 },
+      ],
+      exception: {
+        lineId: 'cot-0102-2', marginPct: 0.15, minMargin: 0.2,
+        reason: 'Cliente recurrente; 50.000 fundas con dos entregas programadas.',
+        requestedBy: 'u-ventas', requestedAt: ago(60), status: 'pending',
+      },
+      createdBy: 'u-ventas', createdAt: ago(75),
+    },
+    {
+      id: 'cot-0097', code: 'COT-0097', customerId: 'c-agricola', revision: 1, status: 'confirmed',
+      lines: [{ id: 'cot-0097-1', productId: 'p-fv1520', quantity: 25_000, materials: 190.5, transformation: 164.5, marginPct: 0.23 }],
+      createdBy: 'u-ventas', createdAt: at(-9, 10),
+    },
+    {
+      id: 'cot-0098', code: 'COT-0098', customerId: 'c-distribuidora', revision: 1, status: 'authorized',
+      lines: [{ id: 'cot-0098-1', productId: 'p-fb2636', quantity: 30_000, materials: 168.6, transformation: 192.9, marginPct: 0.18 }],
+      exception: {
+        lineId: 'cot-0098-1', marginPct: 0.18, minMargin: 0.2,
+        reason: 'Pedido de prueba de un cliente nuevo.',
+        requestedBy: 'u-ventas', requestedAt: at(-7, 10), status: 'authorized',
+        decidedBy: 'u-admin', decidedAt: at(-7, 12), observation: 'Autorizado una sola vez.',
+      },
+      createdBy: 'u-ventas', createdAt: at(-7, 9),
+    },
+  ];
+
+  // ---- monthly history for trend charts (W-01, W-15, W-19) ----
+  // FI-4060 went from 0,0349 to 0,0371 USD per bag in 6 months (+6,3 %), by the resin price.
   const unitCostSeries: Record<string, number[]> = {
-    'p-fn2030': [0.0094, 0.0096, 0.0098, 0.01, 0.0102, 0.0104],
-    'p-fi4060': [0.0348, 0.0352, 0.0357, 0.0361, 0.0365, 0.037],
-    'p-fv1520': [0.0136, 0.0138, 0.014, 0.0142, 0.0144, 0.0146],
+    'p-fn2030': [0.0094, 0.0096, 0.0098, 0.01, 0.0102, 0.0103],
+    'p-fi4060': [0.0349, 0.0352, 0.0358, 0.0356, 0.0363, 0.0371],
+    'p-fv1520': [0.0136, 0.0138, 0.014, 0.0142, 0.0144, 0.0142],
     'p-fb2636': [0.0131, 0.0133, 0.0135, 0.0136, 0.0138, 0.014],
   };
   const monthlyUnitCosts: MonthlyUnitCost[] = Object.entries(unitCostSeries).flatMap(([productId, values]) =>
     values.map((unitCost, i) => ({ month: monthKey(SIX_MONTHS[i]), productId, unitCost })),
   );
 
+  // Last month: extrusion over the 3,0 % threshold; plant average 2,7 % (W-01, W-18).
   const wasteSeries: Record<MonthlyWaste['section'], number[]> = {
-    extrusion: [0.026, 0.024, 0.027, 0.025, 0.026, 0.031],
-    printing: [0.008, 0.007, 0.009, 0.006, 0.007, 0.004],
-    sealing: [0.012, 0.014, 0.011, 0.013, 0.012, 0.01],
-    dieCutting: [0.009, 0.01, 0.008, 0.011, 0.009, 0.004],
+    extrusion: [0.028, 0.026, 0.029, 0.027, 0.032, 0.029],
+    printing: [0.012, 0.011, 0.013, 0.012, 0.014, 0.01],
+    sealing: [0.009, 0.01, 0.008, 0.009, 0.008, 0.007],
+    dieCutting: [0.006, 0.007, 0.006, 0.008, 0.005, 0.004],
+    packing: [0.003, 0.003, 0.004, 0.003, 0.003, 0.002],
+    all: [0.026, 0.025, 0.028, 0.026, 0.027, 0.025],
   };
   const monthlyWaste: MonthlyWaste[] = (Object.keys(wasteSeries) as MonthlyWaste['section'][]).flatMap((section) =>
     wasteSeries[section].map((wastePct, i) => ({ month: monthKey(SIX_MONTHS[i]), section, wastePct })),
@@ -476,33 +524,21 @@ export function createSeed(now: Date = new Date()): Database {
   const audit = (when: string, userId: string, entity: string, entityId: string, action: string, before?: string, after?: string): AuditEntry =>
     ({ id: `au-${String(++auditSeq).padStart(3, '0')}`, at: when, userId, entity, entityId, action, before, after });
   const auditLog: AuditEntry[] = [
-    audit(inMonth(-5, 3, 11), 'u-admin', 'Receta', 'r-fn2030-v1', 'Aprobación', 'Borrador', 'FN-2030 v1 Aprobada'),
-    audit(inMonth(-5, 3, 11), 'u-admin', 'Receta', 'r-fi4060-v1', 'Aprobación', 'Borrador', 'FI-4060 v1 Aprobada'),
-    audit(inMonth(-5, 4, 11), 'u-admin', 'Receta', 'r-fv1520-v1', 'Aprobación', 'Borrador', 'FV-1520 v1 Aprobada'),
-    audit(inMonth(-5, 4, 11), 'u-admin', 'Receta', 'r-fb2636-v1', 'Aprobación', 'Borrador', 'FB-2636 v1 Aprobada'),
-    audit(inMonth(-4, 6, 16), 'u-admin', 'Precio referencial', 'pp-01', 'Aprobación', 'Propuesta', 'FN-2030 0,0120 USD'),
-    audit(inMonth(-4, 6, 16), 'u-admin', 'Precio referencial', 'pp-02', 'Aprobación', 'Propuesta', 'FI-4060 0,0458 USD'),
-    audit(inMonth(-3, 1, 8), 'u-admin', 'Costo hora máquina', 'mc-ext01', 'Modificación', 'EXT-01 8,00 USD/h', 'EXT-01 8,50 USD/h'),
-    audit(inMonth(-3, 12, 15), 'u-admin', 'Precio referencial', 'pp-03', 'Aprobación', 'Propuesta', 'FV-1520 0,0182 USD'),
-    audit(inMonth(-2, 1, 8), 'u-rrhh', 'Costo hora cargo', 'pos-ext', 'Modificación', 'Operador de extrusión 3,10 USD/h', 'Operador de extrusión 3,25 USD/h'),
-    audit(inMonth(-2, 10, 15), 'u-admin', 'Receta', 'r-fi4060-v2', 'Aprobación', 'Borrador', 'FI-4060 v2 Aprobada'),
-    audit(inMonth(-2, 14, 12), 'u-admin', 'Precio referencial', 'pp-04', 'Aprobación', 'Propuesta', 'FB-2636 0,0166 USD'),
-    audit(inMonth(-1, 8, 14), 'u-admin', 'Precio referencial', 'pp-05', 'Aprobación', 'FN-2030 0,0120 USD', 'FN-2030 0,0125 USD'),
-    audit(inMonth(-1, 8, 14), 'u-admin', 'Precio referencial', 'pp-06', 'Aprobación', 'FI-4060 0,0458 USD', 'FI-4060 0,0475 USD'),
-    audit(inMonth(0, 1, 8), 'u-contabilidad', 'Precio de proveedor', 'sp-pebd-polimeros-6', 'Creación', 'PEBD Polímeros Demo 1,48 USD/kg', 'PEBD Polímeros Demo 1,50 USD/kg'),
-    audit(at(-18, 9), 'u-supervisor', 'Orden de producción', 'op-0001', 'Validación de cierre', 'Por validar', 'Cerrada'),
-    audit(at(-10, 9), 'u-supervisor', 'Orden de producción', 'op-0002', 'Validación de cierre', 'Por validar', 'Cerrada'),
-    audit(at(-1, 11), 'u-supervisor', 'Orden de producción', 'op-0005', 'Liberación a planta', undefined, 'Pendiente'),
-    audit(at(-1, 16, 20), 'u-admin', 'Receta', 'r-fb2636-v2', 'Creación', undefined, 'FB-2636 v2 Borrador'),
-    audit(at(-1, 17), 'u-admin', 'Usuario', 'u-op5', 'Desactivación', 'Activo', 'Inactivo'),
+    audit(inMonth(-8, 1, 8), 'u-admin', 'Tarifa', 'Indirectos', 'Modificó', '2,25 USD/h', '2,40 USD/h'),
+    audit(inMonth(-8, 1, 8), 'u-admin', 'Regla', 'Ganancia mínima', 'Modificó', '18 %', '20 %'),
+    audit(inMonth(-1, 15, 16), 'u-admin', 'Exportación', 'CSV', 'Exportó', undefined, '4 productos'),
+    audit(at(-4, 15, 2), 'u-admin', 'Cuenta', 'operario3', 'Desactivó', 'Activa', 'Inactiva'),
+    audit(at(-1, 16, 20), 'u-admin', 'Tarifa', 'Op. extrusión', 'Modificó', '2,95 USD/h', '3,10 USD/h'),
+    audit(at(-1, 17, 5), 'u-admin', 'Precio', 'PEBD · Plásticos del Litoral', 'Registró', '1,50 USD/kg', '1,58 USD/kg'),
+    audit(ago(60), 'u-ventas', 'Cotización', 'COT-0102', 'Envió a autorización', undefined, 'FN-2030 al 15 % (excepción)'),
   ].sort((a, b) => a.at.localeCompare(b.at));
 
   const dobraExports: Database['dobraExports'] = [
     {
       id: 'dx-01',
       at: inMonth(-1, 9, 10),
-      userId: 'u-contabilidad',
-      fileName: `segucost_dobra_${monthKey(-1).replace('-', '')}09.csv`,
+      userId: 'u-admin',
+      fileName: `costos_precios_${monthKey(-1).replace('-', '')}15.csv`,
       productIds: ['p-fn2030', 'p-fi4060', 'p-fv1520', 'p-fb2636'],
     },
   ];
@@ -514,6 +550,7 @@ export function createSeed(now: Date = new Date()): Database {
     materials,
     suppliers,
     supplierPrices,
+    referencePrices,
     productLines,
     products,
     recipes,
@@ -521,6 +558,9 @@ export function createSeed(now: Date = new Date()): Database {
     salesOrders,
     machines,
     machineRates,
+    indirectRates,
+    ruleRates,
+    quotes,
     stageStandards,
     orders,
     stages,
@@ -535,6 +575,8 @@ export function createSeed(now: Date = new Date()): Database {
     monthlyUnitCosts,
     monthlyWaste,
     settings: {
+      minMargin: 0.2,
+      balanceTolerance: 0.005,
       maxWastePct: 0.03,
       localImportThreshold: 0.1,
       marginMethod: 'onCost',

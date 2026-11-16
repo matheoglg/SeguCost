@@ -101,3 +101,45 @@ export function formatElapsed(ms: number): string {
   if (h < 24) return formatDuration(ms);
   return h % 24 === 0 ? `${h / 24} d` : `${Math.floor(h / 24)} d ${h % 24} h`;
 }
+
+const MONTH_NAMES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+/** Full month name: 'YYYY-MM' -> "octubre". */
+export const monthName = (month: string) => MONTH_NAMES[Number(month.split('-')[1]) - 1];
+
+/** Short month label for charts: 'YYYY-MM' -> "Oct". */
+export function monthShort(month: string): string {
+  const m = MONTHS[Number(month.split('-')[1]) - 1];
+  return m[0].toUpperCase() + m.slice(1);
+}
+
+/** "Lunes 9 de noviembre de 2026" (W-01 greeting). */
+export function formatLongDate(d: Date): string {
+  return `${DAY_NAMES[d.getDay()]} ${d.getDate()} de ${MONTH_NAMES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+/** "Buenos días" / "Buenas tardes" / "Buenas noches" by local hour. */
+export function greeting(d: Date): string {
+  const h = d.getHours();
+  return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
+}
+
+/** Relative moment for lists: "hace 5 min", "hace 1 h", "hoy 11:40", "ayer 16:20", "02/11". */
+export function formatRelative(value: string, now: Date = new Date()): string {
+  const d = new Date(value);
+  const minutes = Math.round((now.getTime() - d.getTime()) / 60_000);
+  if (minutes >= 0 && minutes < 60) return minutes <= 1 ? 'hace 1 min' : `hace ${minutes} min`;
+  if (minutes >= 60 && minutes < 120) return 'hace 1 h';
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (sameDay(d, now)) return `hoy ${formatTime(value)}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `ayer ${formatTime(value)}`;
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+}
+
+/** "Hoy" for today's date, otherwise "dd/mm/aaaa" (record lists and histories). */
+export function formatDay(value: string, now: Date = new Date()): string {
+  return new Date(value).toDateString() === now.toDateString() ? 'Hoy' : formatDate(value);
+}
